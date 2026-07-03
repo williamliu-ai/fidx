@@ -170,29 +170,48 @@ files ──> documents (SQLite) ──> FTS5 (BM25, porter)        ─┐
 ## Benchmarks
 
 `bench/` is a reproducible harness comparing fmdidx against **[QMD]** on four
-corpora with known-item queries (CPU-only, warm fmdidx daemon, idle box). The
-headline: **fmdidx matches or beats QMD on recall@10 on every corpus, at
-~300–1000× lower latency than QMD's LLM modes.**
+corpora with known-item queries (CPU-only, warm engines, idle box). Result
+quality has **two axes that trade off**: *recall* (is the right document in
+the top-10) and *purity* — **noise@10** (share of returned results an LLM
+judge rated irrelevant, lower is better) and **clean@10** (share of queries
+whose results contain zero noise, higher is better). The headline:
+**fmdidx beats QMD's hybrid on recall, noise, and clean on every corpus, at
+~300–1000× lower latency.**
 
-recall@10 / median (p50) latency per query:
+| Corpus (size) | Engine | R@10 ↑ | noise@10 ↓ | clean@10 ↑ | p50 latency |
+|---|---|---|---|---|---|
+| docs-small (2k) | **fmdidx** | 0.933 | **0.219** | **0.560** | **20 ms** |
+| | QMD `query` (LLM hybrid) | 0.933 | 0.564 | 0.053 | 33 s |
+| | QMD `search` (FTS) | 0.920 | n/m | n/m | 78 ms |
+| docs (18.8k) | **fmdidx** | **0.962** | **0.250** | 0.482 | **49 ms** |
+| | QMD `query` | 0.914 | 0.677 | 0.060 | 36 s |
+| | QMD `search` | 0.896 | 0.353 | 0.818 | 87 ms |
+| chat (8k) | **fmdidx** | 0.908 | 0.133 | 0.710 | **18 ms** |
+| | QMD `query` | 0.912 | 0.472 | 0.186 | 18 s |
+| | QMD `search` | 0.916 | 0.086 | 0.964 | 81 ms |
+| code (92.3k) | **fmdidx** | **0.864** | **0.127** | 0.704 | 452 ms |
+| | QMD `query` | 0.782 | 0.713 | 0.056 | 33 s |
+| | QMD `search` | 0.784 | 0.256 | 0.868 | 121 ms |
 
-| Corpus (size) | fmdidx hybrid | QMD `query` (LLM hybrid) | QMD `search` (FTS) |
-|---|---|---|---|
-| docs-small (2k) | **1.000** / **20 ms** | 0.920 / 33 s | 0.920 / 78 ms |
-| docs (18.8k) | **0.990** / **49 ms** | 0.916 / 36 s | 0.896 / 87 ms |
-| chat (8k) | 0.914 / **18 ms** | 0.914 / 18 s | 0.916 / 81 ms |
-| code (92.3k) | **0.900** / 452 ms | 0.786 / 33 s | 0.784 / 121 ms |
+fmdidx rows are measured with its built-in deterministic result truncation
+enabled (`--truncate`; ships off by default — without it fmdidx trades purity
+for recall, e.g. code R@10 0.900 at noise 0.297). "n/m" = not measured.
 
-- **Code is the widest gap:** fmdidx R@10 **0.900 vs QMD 0.786 (+11 pts)**; QMD's
-  pure-vector mode collapses to 0.048 there.
-- fmdidx also leads **R@3** on every corpus (e.g. docs 0.962 vs 0.876).
-- **Where QMD wins:** raw latency on the big code corpus (its FTS `search` 121 ms
-  vs fmdidx 452 ms — fmdidx's brute-force vector KNN over 92k vectors), and chat R@1.
-  Even then fmdidx stays sub-second and ~65× faster than QMD's LLM modes.
+- **Hybrid vs hybrid** (fmdidx vs QMD `query`): fmdidx wins all three quality
+  metrics on every corpus — e.g. code recall +8 pts with 5.6× less noise —
+  with no LLM anywhere in its query path.
+- **Where QMD wins:** its FTS `search` mode is the purity champion on chat
+  (clean 0.964) and the latency champion on the big code corpus (121 ms vs
+  fmdidx's 452 ms brute-force KNN over 92k vectors), but trails on recall
+  where it matters (docs, code). QMD's pure-vector mode collapses to 0.048
+  R@10 on code.
+- fmdidx stays sub-second even on its weakest corpus and is ~65× faster than
+  QMD's LLM modes there.
 
-Full per-corpus tables, conditions, purity metrics, the SymDex comparison,
-and the honest threats-to-validity: [docs/BENCHMARKS.md](docs/BENCHMARKS.md);
-harness usage and methodology: [bench/README.md](bench/README.md).
+Full tables (R@1/R@3, untruncated numbers, per-language code results), the
+SymDex comparison, conditions, and the honest threats-to-validity:
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md); harness usage and methodology:
+[bench/README.md](bench/README.md).
 
 [QMD]: https://github.com/tobi/qmd
 
