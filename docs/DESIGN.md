@@ -1,4 +1,4 @@
-# fidx design
+# fmdidx design
 
 ## Goal
 
@@ -125,7 +125,7 @@ unix socket; the CLI auto-detects it. This is the intended mode for agents.
 
 ## Validation
 
-See `bench/README.md`: three corpora (docs / chat / code, each ≥10k items),
+See `bench/README.md`: four corpora (docs / docs-small / chat / code),
 500 generated known-item queries per corpus, identical queries replayed
 against fidx and QMD (search / vsearch / query modes), reporting R@k,
 latency p50/p99, index build time and on-disk size.
