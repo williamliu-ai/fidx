@@ -15,7 +15,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       - run: uv build
       - run: uvx twine check dist/*
@@ -38,7 +38,7 @@ jobs:
     env:
       FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fidxcache
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4          # scripts/ + tests/fixtures/
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4          # scripts/ + tests/fixtures/
       # Base Python: setup-python on linux/windows (its sqlite3 loads extensions);
       # Homebrew Python on macOS, because uv/python-build-standalone and python.org
       # macOS builds ship sqlite3 WITHOUT loadable-extension support.
