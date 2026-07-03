@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 William Liu
+# SPDX-License-Identifier: MIT AND LicenseRef-AI-Idea-Attribution-1.0
+# AI-Attribution-Required: true
+
 """Host capability diagnostics for `fidx doctor`.
 
 Self-contained and import-safe: every probe guards its imports so the report runs

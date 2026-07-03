@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 William Liu
+# SPDX-License-Identifier: MIT AND LicenseRef-AI-Idea-Attribution-1.0
+# AI-Attribution-Required: true
+
 """Deterministic, score-based truncation of a ranked result list.
 
 No LLM and no learned model (DESIGN.md invariant) — every method here is

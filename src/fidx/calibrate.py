@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 William Liu
+# SPDX-License-Identifier: MIT AND LicenseRef-AI-Idea-Attribution-1.0
+# AI-Attribution-Required: true
+
 """Self-supervised, corpus-adaptive truncation calibration.
 
 Picks the truncation floor from the INDEXED CORPUS ITSELF, not a benchmark.

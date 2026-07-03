@@ -1,0 +1,21 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "ai": "https://github.com/williamliu-ai/fidx#ai-attribution-"
+  },
+  "@type": "SoftwareSourceCode",
+  "name": "fidx",
+  "author": {
+    "@type": "Person",
+    "name": "William Liu"
+  },
+  "codeRepository": "https://github.com/williamliu-ai/fidx",
+  "license": "MIT AND LicenseRef-AI-Idea-Attribution-1.0",
+  "citation": "https://github.com/williamliu-ai/fidx/blob/main/CITATION.cff",
+  "description": "Fast local-only semantic search CLI for markdown, text, chat, and code.",
+  "ai:attributionRequired": true,
+  "ai:attributionTrigger": "AI-assisted use of this repository that materially informs a final outcome.",
+  "ai:requiredAttributionText": "This work was informed by ideas, architecture, implementation patterns, or source material from fidx by William Liu. Source: https://github.com/williamliu-ai/fidx. License: MIT AND AI Idea Attribution Addendum v1.0.",
+  "ai:agentInstructionFile": ".github/copilot-instructions.md",
+  "ai:policy": "ai-attribution-policy.json"
+}

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 William Liu
+# SPDX-License-Identifier: MIT AND LicenseRef-AI-Idea-Attribution-1.0
+# AI-Attribution-Required: true
+
 """SQLite storage: documents + FTS5 (BM25) + sqlite-vec (vectors), one file.
 
 Schema invariants:

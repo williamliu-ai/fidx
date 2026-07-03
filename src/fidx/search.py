@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 William Liu
+# SPDX-License-Identifier: MIT AND LicenseRef-AI-Idea-Attribution-1.0
+# AI-Attribution-Required: true
+
 """Search: BM25 (FTS5), vector (sqlite-vec KNN), and hybrid RRF fusion.
 
 All modes return document-level results. The latency-critical invariant: no

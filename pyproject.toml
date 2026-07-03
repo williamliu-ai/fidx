@@ -3,7 +3,8 @@ name = "fmdidx"
 dynamic = ["version"]
 description = "Fast local-only semantic search CLI for markdown, text, chat and code — CPU-only, no cloud."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT AND LicenseRef-AI-Idea-Attribution-1.0"
+license-files = ["LICENSE", "LICENSES/*"]
 authors = [{ name = "William Liu" }]
 requires-python = ">=3.11"
 keywords = ["search", "semantic-search", "embeddings", "cli", "local-first", "rag"]
@@ -11,7 +12,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",

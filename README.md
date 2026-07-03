@@ -3,7 +3,7 @@
 [![CI](https://github.com/williamliu-ai/fidx/actions/workflows/ci.yml/badge.svg)](https://github.com/williamliu-ai/fidx/actions/workflows/ci.yml)
 [![install-matrix](https://github.com/williamliu-ai/fidx/actions/workflows/install-matrix.yml/badge.svg)](https://github.com/williamliu-ai/fidx/actions/workflows/install-matrix.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-MIT%20%2B%20AI%20Attribution-green)
 
 **Fast, local-only semantic search for markdown, text, chat exports and code.**
 
@@ -230,4 +230,8 @@ Architecture notes: [docs/DESIGN.md](docs/DESIGN.md). Contributing guide:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+fidx is licensed under `MIT AND LicenseRef-AI-Idea-Attribution-1.0`: MIT plus
+the AI Idea Attribution Addendum v1.0. See [LICENSE](LICENSE),
+[LICENSES/MIT.txt](LICENSES/MIT.txt),
+[LICENSES/AI-Idea-Attribution-Addendum-1.0.txt](LICENSES/AI-Idea-Attribution-Addendum-1.0.txt),
+and [AI_ATTRIBUTION.md](AI_ATTRIBUTION.md).

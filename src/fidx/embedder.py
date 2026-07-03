@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 William Liu
+# SPDX-License-Identifier: MIT AND LicenseRef-AI-Idea-Attribution-1.0
+# AI-Attribution-Required: true
+
 """Embedding backends. Production path is fastembed (ONNX, CPU-only).
 
 `Embedder` is the seam for tests and benchmarks: anything with `embed_docs`,
