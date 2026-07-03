@@ -1,0 +1,83 @@
+name: install-matrix
+
+# Proves a clean install + ~1k-doc e2e benchmark on every supported triple:
+# linux-x86_64 (ubuntu), windows-x86_64 (windows), macos-arm64 (macos-14).
+# Build the wheel ONCE, then install THAT artifact from scratch on each cell and
+# run `fidx doctor` + scripts/e2e_smoke.py against the installed CLI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - run: uv build
+      - run: uvx twine check dist/*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+
+  install:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash            # bash on all runners so globbing/paths are uniform
+    env:
+      FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fidxcache
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4          # scripts/ + tests/fixtures/
+      # Base Python: setup-python on linux/windows (its sqlite3 loads extensions);
+      # Homebrew Python on macOS, because uv/python-build-standalone and python.org
+      # macOS builds ship sqlite3 WITHOUT loadable-extension support.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: runner.os != 'macOS'
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Homebrew Python (macOS sqlite extension support)
+        if: runner.os == 'macOS'
+        run: brew install python@${{ matrix.python }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      - name: create venv + install wheel (binary only)
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            BASE="$(brew --prefix python@${{ matrix.python }})/libexec/bin/python"
+          else
+            BASE=python
+          fi
+          "$BASE" -m venv .venv
+          if [ -f .venv/bin/python ]; then VPY=.venv/bin/python; VBIN=.venv/bin; else VPY=.venv/Scripts/python; VBIN=.venv/Scripts; fi
+          "$VPY" -m pip install --upgrade pip >/dev/null
+          "$VPY" -m pip install --only-binary=:all: dist/*.whl
+          echo "VPY=$VPY" >> "$GITHUB_ENV"
+          echo "VBIN=$VBIN" >> "$GITHUB_ENV"
+      - name: arch sanity (macos-14 must be arm64)
+        if: matrix.os == 'macos-14'
+        run: |
+          "$VPY" -c "import platform,sys; m=platform.machine(); sys.exit(0 if m=='arm64' else 'expected arm64, got '+m)"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.FASTEMBED_CACHE_PATH }}
+          key: fidx-model-e5-768-${{ runner.os }}-v1
+      - name: fidx doctor (installed console script)
+        run: |
+          export PATH="$VBIN:$PATH"
+          fidx doctor
+      - name: e2e benchmark (~1k docs, installed wheel)
+        run: |
+          "$VPY" scripts/e2e_smoke.py --docs 1000 --queries 40 --expect-sha 0c44103f9ebb89b9f0504010acb9a37fd7f4d40e8c34b2e61b364164fbce2dac

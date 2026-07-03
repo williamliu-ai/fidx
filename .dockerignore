@@ -1,0 +1,16 @@
+# Keep the Docker build context small — we only need dist/, scripts/, tests/fixtures/.
+.git
+.venv
+venv
+bench/data
+bench/results
+bench/__pycache__
+docs
+*.db
+*.db-*
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.claude
+src
+*.egg-info

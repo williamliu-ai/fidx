@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+
+# fidx runtime artifacts
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sock
+
+# Benchmark data and results (fetched/generated, not source)
+bench/data/
+bench/results/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Agent instructions and state (private; canonical docs live outside the repo)
+CLAUDE.md
+AGENTS.md
+.claude/
+docs/claude-nav/

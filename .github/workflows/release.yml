@@ -1,0 +1,75 @@
+name: release
+
+# Trusted-publishing release. Fires on an annotated v* tag. Builds the dist ONCE,
+# verifies the tag matches the package version, runs the install+e2e check on that
+# exact artifact, then publishes the SAME files to TestPyPI and PyPI via OIDC
+# (no tokens). Maintainer setup required before the first release: choose the
+# distribution name (`fidx` is taken on PyPI), set [project].name accordingly, and
+# register both trusted publishers on PyPI/TestPyPI for this repo + workflow +
+# environments.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - name: build
+        run: uv build
+      - name: tag must match package version (v-stripped)
+        run: |
+          ver=$(ls dist/*.whl | sed -E 's/.*-([0-9][^-]*)-py3.*/\1/')
+          tag="${GITHUB_REF_NAME#v}"
+          echo "wheel version=$ver tag=$tag"
+          test "$ver" = "$tag"
+      - run: uvx twine check dist/*
+      - name: pip-audit (blocking at release time)
+        run: |
+          uv export --no-emit-project --format requirements-txt -o /tmp/reqs.txt
+          uvx pip-audit -r /tmp/reqs.txt
+      - name: install + e2e on the exact artifact
+        run: |
+          python -m venv .venv && . .venv/bin/activate
+          pip install --only-binary=:all: dist/*.whl
+          fidx doctor
+          python scripts/e2e_smoke.py --docs 1000 --queries 40 \
+            --expect-sha 0c44103f9ebb89b9f0504010acb9a37fd7f4d40e8c34b2e61b364164fbce2dac
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-latest          # the publish action is container-based (Linux)
+    environment: testpypi
+    permissions:
+      id-token: write               # OIDC, only on the publish job
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
