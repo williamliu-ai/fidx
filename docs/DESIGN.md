@@ -1,4 +1,4 @@
-# fmdidx design
+# fidx design
 
 ## Goal
 

@@ -7,7 +7,7 @@ fidx is pre-1.0; security fixes are applied to the latest released version.
 ## Reporting a vulnerability
 
 Please report security issues privately via GitHub's
-["Report a vulnerability"](https://github.com/williamliu-ai/fmdidx/security/advisories/new)
+["Report a vulnerability"](https://github.com/williamliu-ai/fidx/security/advisories/new)
 (Security → Advisories) rather than a public issue. We aim to acknowledge within
 a few days.
 

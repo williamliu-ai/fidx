@@ -1,4 +1,4 @@
-# fmdidx benchmark harness
+# fidx benchmark harness
 
 Reproducible comparison of fidx against [QMD](https://github.com/tobi/qmd)
 on four corpora, per the project's acceptance criteria: recall and latency

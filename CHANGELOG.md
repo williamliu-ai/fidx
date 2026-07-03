@@ -1,7 +1,7 @@
 # Changelog
 
-All notable changes to fmdidx are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and fmdidx adheres to
+All notable changes to fidx are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and fidx adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]

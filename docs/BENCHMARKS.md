@@ -1,6 +1,6 @@
-# fmdidx benchmarks
+# fidx benchmarks
 
-Canonical results for fmdidx (CLI command: `fidx`) vs [QMD](https://github.com/tobi/qmd) and
+Canonical results for fidx (distributed on PyPI as `fmdidx`) vs [QMD](https://github.com/tobi/qmd) and
 [SymDex](https://github.com/husnainpk/SymDex), measured with the reproducible
 harness in [`bench/`](../bench/README.md). Every number here can be
 regenerated; see [Reproducing](#reproducing) for commands and cost warnings.

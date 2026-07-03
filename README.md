@@ -1,7 +1,7 @@
-# fmdidx
+# fidx
 
-[![CI](https://github.com/williamliu-ai/fmdidx/actions/workflows/ci.yml/badge.svg)](https://github.com/williamliu-ai/fmdidx/actions/workflows/ci.yml)
-[![install-matrix](https://github.com/williamliu-ai/fmdidx/actions/workflows/install-matrix.yml/badge.svg)](https://github.com/williamliu-ai/fmdidx/actions/workflows/install-matrix.yml)
+[![CI](https://github.com/williamliu-ai/fidx/actions/workflows/ci.yml/badge.svg)](https://github.com/williamliu-ai/fidx/actions/workflows/ci.yml)
+[![install-matrix](https://github.com/williamliu-ai/fidx/actions/workflows/install-matrix.yml/badge.svg)](https://github.com/williamliu-ai/fidx/actions/workflows/install-matrix.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -14,7 +14,7 @@ queries, JSON output, and collection scoping.
 ## Why
 
 Local semantic search tools tend to buy recall with latency: LLM query
-expansion and LLM reranking push a single query to ~10 seconds on CPU. fmdidx
+expansion and LLM reranking push a single query to ~10 seconds on CPU. fidx
 takes a different trade — hybrid BM25 + 768-dim vector search fused with
 reciprocal-rank fusion (RRF), and *no LLM calls in the query path*. One ONNX
 embedding pass per query is the only model work.
@@ -33,7 +33,7 @@ embedding pass per query is the only model work.
 ## Requirements
 
 - **Python 3.11 or 3.12** whose `sqlite3` supports **loadable extensions** and
-  **FTS5** (fmdidx loads the `sqlite-vec` extension). Run `fidx doctor` to verify.
+  **FTS5** (fidx loads the `sqlite-vec` extension). Run `fidx doctor` to verify.
 - Prebuilt wheels exist for the verified platforms below — **no compiler needed**.
 - First `fidx index` downloads the embedding model once (then fully offline).
 
@@ -46,10 +46,12 @@ embedding pass per query is the only model work.
 
 ## Install
 
-> **Naming.** **fmdidx** ("fast markdown index") installs a CLI named
-> **`fidx`** — short for typing, and distinct because the PyPI name `fidx`
-> belongs to an unrelated project. Until the first release, install from a
-> built wheel or from source (below). After release: `uv tool install fmdidx`.
+> **Why is the package named `fmdidx`?** The project and its command are
+> **fidx**, but the PyPI name `fidx` was already taken by an unrelated
+> package — so fidx is distributed as **`fmdidx`** ("fast markdown index").
+> That is the only place the name differs: `uv tool install fmdidx` installs
+> the `fidx` command. Until the first release, install from a built wheel or
+> from source (below).
 
 The recommended installer is [uv](https://docs.astral.sh/uv/), because a
 uv-managed Python ships loadable sqlite extensions on Linux and Windows.
@@ -159,53 +161,53 @@ files ──> documents (SQLite) ──> FTS5 (BM25, porter)        ─┐
 
 - **`enable_load_extension` / "sqlite3 was built without loadable-extension
   support"** — your Python's sqlite cannot load `sqlite-vec`. This is the default
-  on **macOS system Python** and uv/python.org macOS builds. Fix: install fmdidx
+  on **macOS system Python** and uv/python.org macOS builds. Fix: install fidx
   with **Homebrew Python** (see macOS install above). `fidx doctor` confirms the
   fix.
 - **`sqlite-vec failed to load` / wrong architecture** — ensure a `sqlite-vec`
   wheel exists for your platform: `pip install --only-binary=:all: sqlite-vec`.
 - **First search is slow / offline use** — the embedding model downloads once on
-  first index. Pre-seed `FASTEMBED_CACHE_PATH` to use fmdidx air-gapped.
+  first index. Pre-seed `FASTEMBED_CACHE_PATH` to use fidx air-gapped.
 
 ## Benchmarks
 
-`bench/` is a reproducible harness comparing fmdidx against **[QMD]** on four
+`bench/` is a reproducible harness comparing fidx against **[QMD]** on four
 corpora with known-item queries (CPU-only, warm engines, idle box). Result
 quality has **two axes that trade off**: *recall* (is the right document in
 the top-10) and *purity* — **noise@10** (share of returned results an LLM
 judge rated irrelevant, lower is better) and **clean@10** (share of queries
 whose results contain zero noise, higher is better). The headline:
-**fmdidx beats QMD's hybrid on recall, noise, and clean on every corpus, at
+**fidx beats QMD's hybrid on recall, noise, and clean on every corpus, at
 ~300–1000× lower latency.**
 
 | Corpus (size) | Engine | R@10 ↑ | noise@10 ↓ | clean@10 ↑ | p50 latency |
 |---|---|---|---|---|---|
-| docs-small (2k) | **fmdidx** | 0.933 | **0.219** | **0.560** | **20 ms** |
+| docs-small (2k) | **fidx** | 0.933 | **0.219** | **0.560** | **20 ms** |
 | | QMD `query` (LLM hybrid) | 0.933 | 0.564 | 0.053 | 33 s |
 | | QMD `search` (FTS) | 0.920 | n/m | n/m | 78 ms |
-| docs (18.8k) | **fmdidx** | **0.962** | **0.250** | 0.482 | **49 ms** |
+| docs (18.8k) | **fidx** | **0.962** | **0.250** | 0.482 | **49 ms** |
 | | QMD `query` | 0.914 | 0.677 | 0.060 | 36 s |
 | | QMD `search` | 0.896 | 0.353 | 0.818 | 87 ms |
-| chat (8k) | **fmdidx** | 0.908 | 0.133 | 0.710 | **18 ms** |
+| chat (8k) | **fidx** | 0.908 | 0.133 | 0.710 | **18 ms** |
 | | QMD `query` | 0.912 | 0.472 | 0.186 | 18 s |
 | | QMD `search` | 0.916 | 0.086 | 0.964 | 81 ms |
-| code (92.3k) | **fmdidx** | **0.864** | **0.127** | 0.704 | 452 ms |
+| code (92.3k) | **fidx** | **0.864** | **0.127** | 0.704 | 452 ms |
 | | QMD `query` | 0.782 | 0.713 | 0.056 | 33 s |
 | | QMD `search` | 0.784 | 0.256 | 0.868 | 121 ms |
 
-fmdidx rows are measured with its built-in deterministic result truncation
-enabled (`--truncate`; ships off by default — without it fmdidx trades purity
+fidx rows are measured with its built-in deterministic result truncation
+enabled (`--truncate`; ships off by default — without it fidx trades purity
 for recall, e.g. code R@10 0.900 at noise 0.297). "n/m" = not measured.
 
-- **Hybrid vs hybrid** (fmdidx vs QMD `query`): fmdidx wins all three quality
+- **Hybrid vs hybrid** (fidx vs QMD `query`): fidx wins all three quality
   metrics on every corpus — e.g. code recall +8 pts with 5.6× less noise —
   with no LLM anywhere in its query path.
 - **Where QMD wins:** its FTS `search` mode is the purity champion on chat
   (clean 0.964) and the latency champion on the big code corpus (121 ms vs
-  fmdidx's 452 ms brute-force KNN over 92k vectors), but trails on recall
+  fidx's 452 ms brute-force KNN over 92k vectors), but trails on recall
   where it matters (docs, code). QMD's pure-vector mode collapses to 0.048
   R@10 on code.
-- fmdidx stays sub-second even on its weakest corpus and is ~65× faster than
+- fidx stays sub-second even on its weakest corpus and is ~65× faster than
   QMD's LLM modes there.
 
 Full tables (R@1/R@3, untruncated numbers, per-language code results), the

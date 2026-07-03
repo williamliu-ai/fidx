@@ -33,9 +33,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/williamliu-ai/fmdidx"
-Repository = "https://github.com/williamliu-ai/fmdidx"
-Issues = "https://github.com/williamliu-ai/fmdidx/issues"
+Homepage = "https://github.com/williamliu-ai/fidx"
+Repository = "https://github.com/williamliu-ai/fidx"
+Issues = "https://github.com/williamliu-ai/fidx/issues"
 
 [project.scripts]
 fidx = "fidx.cli:main"

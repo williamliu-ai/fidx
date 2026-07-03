@@ -1,16 +1,16 @@
-# Contributing to fmdidx
+# Contributing to fidx
 
-Thanks for your interest! fmdidx is a CPU-only, local-first semantic-search CLI.
+Thanks for your interest! fidx is a CPU-only, local-first semantic-search CLI.
 
 ## Dev setup
 
-fmdidx uses [uv](https://docs.astral.sh/uv/). A uv-managed Python is recommended
+fidx uses [uv](https://docs.astral.sh/uv/). A uv-managed Python is recommended
 because it ships a `sqlite3` with loadable extensions on every OS (see the macOS
 note in the README).
 
 ```sh
-git clone https://github.com/williamliu-ai/fmdidx
-cd fmdidx
+git clone https://github.com/williamliu-ai/fidx
+cd fidx
 uv sync --extra dev        # creates .venv with dev deps
 uv run fidx doctor         # confirm your host can run fidx
 uv run pytest              # unit tests
