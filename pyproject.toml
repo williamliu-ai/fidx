@@ -42,15 +42,15 @@ fidx = "fidx.cli:main"
 
 [project.optional-dependencies]
 duckdb = [
-    "duckdb>=1.1",
+    "duckdb>=1.1,<2",
 ]
 dev = [
-    "pytest>=8.0",
-    "duckdb>=1.1",
+    "pytest>=8.0,<10",
+    "duckdb>=1.1,<2",
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.25,<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]

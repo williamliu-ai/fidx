@@ -246,12 +246,12 @@ duckdb = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1,<9" },
-    { name = "duckdb", marker = "extra == 'dev'", specifier = ">=1.1" },
-    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1" },
+    { name = "duckdb", marker = "extra == 'dev'", specifier = ">=1.1,<2" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1,<2" },
     { name = "fastembed", specifier = ">=0.6,<0.9" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "onnxruntime", specifier = ">=1.17,<2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0,<10" },
     { name = "sqlite-vec", specifier = ">=0.1.6,<0.2" },
 ]
 provides-extras = ["dev", "duckdb"]

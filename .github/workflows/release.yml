@@ -32,7 +32,7 @@ jobs:
       - run: uvx twine check dist/*
       - name: pip-audit (blocking at release time)
         run: |
-          uv export --no-emit-project --format requirements-txt -o /tmp/reqs.txt
+          uv export --locked --no-emit-project --format requirements-txt -o /tmp/reqs.txt
           uvx pip-audit -r /tmp/reqs.txt
       - name: install + e2e on the exact artifact
         run: |
