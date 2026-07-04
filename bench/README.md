@@ -50,6 +50,15 @@ uv run python bench/corpora.py code   # ~4 GB of clones; idempotent, resumable
 uv run python bench/gen_queries.py bench/data/docs -n 500
 ```
 
+A fourth type, **paraphrase**, lives in `queries-<corpus>-paraphrase.jsonl`:
+for every known-item query, an LLM wrote a query for the same target document
+in different words (distinctive terms deliberately paraphrased away), then a
+separate LLM pass validated each one (specific enough to retrieve the doc; no
+copied rare terms). These test semantic recall — the known-item types above
+reward lexical overlap by construction. They are **checked into the repo**
+(unlike the corpora and seeded query sets, they are not mechanically
+reproducible); regenerate/extend with `bench/paraphrase_bench.py`.
+
 Ground truth is the source file. The same queries are replayed against every
 engine, so generation bias hits all engines equally.
 
