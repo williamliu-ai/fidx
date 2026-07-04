@@ -11,6 +11,13 @@ CPU-only. No cloud, no GPU, no API keys. One SQLite file holds the full index.
 Built to be the retrieval layer for agentic workflows: millisecond warm
 queries, JSON output, and collection scoping.
 
+![fidx demo — install, index, and semantic search in about a minute](https://github.com/williamliu-ai/fidx/releases/download/v0.1.0/fidx-demo.gif)
+
+*The demo corpus is the benchmark's synthetic chat data ([attached to the
+release](https://github.com/williamliu-ai/fidx/releases/tag/v0.1.0) along
+with the doc corpora and query sets); `demo-driver.sh` there reproduces the
+recording.*
+
 ## Why
 
 Local semantic search tools tend to buy recall with latency: LLM query
