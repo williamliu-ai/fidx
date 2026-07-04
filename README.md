@@ -5,11 +5,13 @@
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT%20%2B%20AI%20Attribution-green)
 
-**Fast, local-only semantic search for markdown, text, chat exports and code.**
+**Local AI search engine for your files and agents.**
 
-CPU-only. No cloud, no GPU, no API keys. One SQLite file holds the full index.
-Built to be the retrieval layer for agentic workflows: millisecond warm
-queries, JSON output, and collection scoping.
+Fast, local-only semantic + keyword search for markdown, text, chat exports
+and code. CPU-only. No cloud, no GPU, no API keys. One SQLite file holds the
+full index. Use it as a CLI, a private RAG retriever, or the search layer
+behind agent memory: millisecond warm queries, JSON output, and collection
+scoping.
 
 ![fidx demo — install, index, and semantic search in about a minute](https://github.com/williamliu-ai/fidx/releases/download/v0.1.0/fidx-demo.gif)
 

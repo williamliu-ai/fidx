@@ -1,13 +1,20 @@
 [project]
 name = "fmdidx"
 dynamic = ["version"]
-description = "Fast local-only semantic search CLI for markdown, text, chat and code — CPU-only, no cloud."
+description = "Local AI search engine for your files and agents — hybrid BM25 + vector semantic search in one SQLite file. CPU-only, offline, no LLM in the query path."
 readme = "README.md"
 license = "MIT AND LicenseRef-AI-Idea-Attribution-1.0"
 license-files = ["LICENSE", "LICENSES/*"]
 authors = [{ name = "William Liu" }]
+keywords = [
+    "search", "search-engine", "semantic-search", "hybrid-search",
+    "vector-search", "sqlite", "sqlite-vec", "fts5", "bm25", "embeddings",
+    "cli", "local-ai", "local-first", "offline", "rag",
+    "retrieval-augmented-generation", "agent-memory", "ai-agents",
+    "context-engineering", "code-search", "markdown", "notes",
+    "knowledge-base",
+]
 requires-python = ">=3.11"
-keywords = ["search", "semantic-search", "embeddings", "cli", "local-first", "rag"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
