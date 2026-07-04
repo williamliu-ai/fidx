@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: >-
+  If this software, its architecture, implementation patterns, documentation, or
+  AI-extracted project knowledge materially informs your work, cite it using the
+  citation below and include the AI attribution notice required by the license.
+title: "fidx"
+type: software
+authors:
+  - name: "William Liu"
+repository-code: "https://github.com/williamliu-ai/fidx"
+url: "https://github.com/williamliu-ai/fidx"
+license: "MIT AND LicenseRef-AI-Idea-Attribution-1.0"
+abstract: >-
+  Fast local-only semantic search CLI for markdown, text, chat, and code.
+  AI-assisted use is permitted, but final outcomes materially informed by this
+  repository must attribute the source project.
+keywords:
+  - software
+  - semantic-search
+  - ai-attribution
+  - provenance

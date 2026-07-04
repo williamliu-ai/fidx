@@ -1,0 +1,63 @@
+[project]
+name = "fmdidx"
+dynamic = ["version"]
+description = "Fast local-only semantic search CLI for markdown, text, chat and code — CPU-only, no cloud."
+readme = "README.md"
+license = "MIT AND LicenseRef-AI-Idea-Attribution-1.0"
+license-files = ["LICENSE", "LICENSES/*"]
+authors = [{ name = "William Liu" }]
+requires-python = ">=3.11"
+keywords = ["search", "semantic-search", "embeddings", "cli", "local-first", "rag"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Indexing",
+]
+# Bounds: lower = floors known to work; upper = next breaking line (pre-1.0 deps
+# capped at the next minor). Resolved at authoring: click 8.4, numpy 2.4,
+# fastembed 0.8, sqlite-vec 0.1.9, onnxruntime 1.26. onnxruntime is declared
+# directly (not only via fastembed) so a wheel swap can't silently break installs.
+dependencies = [
+    "click>=8.1,<9",
+    "numpy>=1.26,<3",
+    "fastembed>=0.6,<0.9",
+    "sqlite-vec>=0.1.6,<0.2",
+    "onnxruntime>=1.17,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/williamliu-ai/fidx"
+Repository = "https://github.com/williamliu-ai/fidx"
+Issues = "https://github.com/williamliu-ai/fidx/issues"
+
+[project.scripts]
+fidx = "fidx.cli:main"
+
+[project.optional-dependencies]
+duckdb = [
+    "duckdb>=1.1,<2",
+]
+dev = [
+    "pytest>=8.0,<10",
+    "duckdb>=1.1,<2",
+]
+
+[build-system]
+requires = ["hatchling>=1.25,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/fidx/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fidx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

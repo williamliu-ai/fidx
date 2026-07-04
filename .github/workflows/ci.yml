@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Unit tests on Linux + Windows, where a uv-managed Python's sqlite3 loads
+    # extensions. macOS is covered end-to-end by the install-matrix workflow
+    # (Homebrew Python — uv/python-build-standalone macOS lacks loadable sqlite
+    # extensions, so unit tests can't db.connect there).
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked --extra dev   # fail if uv.lock is stale; install the exact hash-pinned set
+      - run: uv run pytest -q
+
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # advisory on PRs; the release workflow runs it blocking
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - name: pip-audit (resolved deps)
+        run: |
+          uv export --no-emit-project --format requirements-txt -o /tmp/reqs.txt
+          uvx pip-audit -r /tmp/reqs.txt
+
+  secrets:
+    # Blocking: no credential-shaped content may enter the tree.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - name: detect-secrets over tracked files
+        run: |
+          git ls-files -z | xargs -0 uvx detect-secrets scan > /tmp/scan.json
+          python3 - <<'EOF'
+          import json, sys
+          results = json.load(open("/tmp/scan.json"))["results"]
+          if results:
+              for f, findings in results.items():
+                  for x in findings:
+                      print(f"POTENTIAL SECRET: {f}:{x['line_number']} ({x['type']})")
+              sys.exit(1)
+          print("no secrets detected")
+          EOF
+
+  private-paths:
+    # Blocking: maintainer-internal docs and references must never (re)enter
+    # the public tree. Keep the checks generic so the guard does not publish
+    # local machine details.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: forbidden paths
+        run: |
+          agent_notes='CLAU''DE.md'
+          agent_rules='AG''ENTS.md'
+          agent_nav='docs/claude-''nav'
+          bad=0
+          for p in docs/spec.md docs/execution-plan docs/research "$agent_nav" docs/benchmark-progress.md "$agent_notes" "$agent_rules"; do
+            if git ls-files --error-unmatch "$p" >/dev/null 2>&1; then
+              echo "FORBIDDEN PATH TRACKED: $p"; bad=1
+            fi
+          done
+          exit $bad
+      - name: forbidden references
+        run: |
+          cloud_marker='g''drive'
+          agent_nav_re='docs/claude-''nav/'
+          local_path_re="(/home/[[:alnum:]_.-]+|/Users/[[:alnum:]_.-]+|[A-Za-z]:\\\\Users\\\\|~/${cloud_marker})"
+          private_doc_re="docs/(research|execution-plan)/|${agent_nav_re}"
+          if git grep -n -E "(${local_path_re}|${private_doc_re})" -- . ':!.gitignore' ':!.github/workflows/ci.yml'; then
+            echo "FORBIDDEN REFERENCE FOUND (see matches above)"; exit 1
+          fi
+          echo "no forbidden references"
