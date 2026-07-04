@@ -26,9 +26,15 @@ uv run python bench/corpora.py            # prepare all under bench/data/
 `docs-small`, `chat`) and the exact benchmark query sets are attached to the
 [v0.1.0 release](https://github.com/williamliu-ai/fidx/releases/tag/v0.1.0)
 (`fidx-bench-*.tar.gz` + `SHA256SUMS`; provenance/licensing in
-`fidx-bench-DATASETS.md` there). Unpack into `bench/data/` and run. The code
-corpus is not attached (~4 GB of third-party repos at pinned tags) —
-`corpora.py` rebuilds it deterministically.
+`fidx-bench-DATASETS.md` there). Unpack into `bench/data/` and run.
+
+The **code corpus is never attached** — it is 10 open-source repos, so one
+command auto-downloads it on the fly (shallow clones at the pinned tags,
+text-only filtering, plus the `code-<repo>` per-repo corpora as symlinks):
+
+```sh
+uv run python bench/corpora.py code   # ~4 GB of clones; idempotent, resumable
+```
 
 ## Queries
 

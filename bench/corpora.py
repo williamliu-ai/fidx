@@ -239,6 +239,22 @@ def prepare_code() -> None:
             n += 1
         total += n
         print(f"code/{name} ({lang}): {n} files -> {dest}")
+    # Per-repo corpora (code-<name>) are the same trees benchmarked alone —
+    # materialize them as symlinks into the combined corpus so one command
+    # yields both the combined index target and the per-repo targets that the
+    # queries-code-<name>.jsonl sets expect.
+    for name, *_ in CODE_REPOS:
+        if name in failed:
+            continue
+        link = DATA / f"code-{name}"
+        if link.exists() or link.is_symlink():
+            continue
+        try:
+            link.symlink_to(Path("code") / name, target_is_directory=True)
+            print(f"code-{name} -> code/{name} (per-repo corpus)")
+        except OSError as e:  # e.g. Windows without symlink privilege
+            print(f"WARN: could not link code-{name} ({e}); "
+                  f"copy or junction bench/data/code/{name} manually", file=sys.stderr)
     print(f"code corpus: {total} files across {len(CODE_REPOS) - len(failed)} repos -> {out}")
     if failed:
         print(f"WARN: failed repos: {', '.join(failed)}", file=sys.stderr)
