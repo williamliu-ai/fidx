@@ -22,6 +22,14 @@ benchmarked on binary content — 25 such posts are excluded from `docs`.
 uv run python bench/corpora.py            # prepare all under bench/data/
 ```
 
+**Shortcut — skip the fetch/build:** the prepared text corpora (`docs`,
+`docs-small`, `chat`) and the exact benchmark query sets are attached to the
+[v0.1.0 release](https://github.com/williamliu-ai/fidx/releases/tag/v0.1.0)
+(`fidx-bench-*.tar.gz` + `SHA256SUMS`; provenance/licensing in
+`fidx-bench-DATASETS.md` there). Unpack into `bench/data/` and run. The code
+corpus is not attached (~4 GB of third-party repos at pinned tags) —
+`corpora.py` rebuilds it deterministically.
+
 ## Queries
 
 500 known-item queries per corpus, generated from randomly selected files

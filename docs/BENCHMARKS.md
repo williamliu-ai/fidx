@@ -248,7 +248,9 @@ Read before quoting any number:
 ## Reproducing
 
 ```sh
-# corpora + queries (docs/docs-small/chat are fully synthetic/open data)
+# fastest path: download the prepared corpora + exact query sets from the
+# v0.1.0 release assets (fidx-bench-*.tar.gz) and unpack into bench/data/
+# — see fidx-bench-DATASETS.md there. Or rebuild from scratch:
 uv run python bench/corpora.py
 uv run python bench/gen_queries.py bench/data/docs -n 500
 
