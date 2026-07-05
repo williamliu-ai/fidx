@@ -9,10 +9,10 @@
 {"qid": "para-chat-0008", "type": "paraphrase", "query": "made to undergo drug screening she failed while man denies knowing", "expected": "m46-conv006473.txt", "overlap": 0.0}
 {"qid": "para-chat-0009", "type": "paraphrase", "query": "movie chat where a doctor explains a pilot's mental decline with absurd anatomy", "expected": "m12-conv001490.txt", "overlap": 0.222}
 {"qid": "para-chat-0010", "type": "paraphrase", "query": "chat about a paid deer guide hired to please a labor boss with trophy antlers", "expected": "m10-conv001227.txt", "overlap": 0.1}
-{"qid": "para-chat-0011", "type": "paraphrase", "query": "teen horror sequel group text where one friend checks whether another is okay", "expected": "m7-conv000998.txt", "overlap": 0.1}
+{"qid": "para-chat-0011", "type": "paraphrase", "query": "group message log named for a fourth horror sequel, check-in followed by another girl's name", "expected": "m7-conv000998.txt", "overlap": 0.083}
 {"qid": "para-chat-0012", "type": "paraphrase", "query": "crude group message exchange where a rude man asks about touching a woman's chest", "expected": "m36-conv004881.txt", "overlap": 0.1}
 {"qid": "para-chat-0013", "type": "paraphrase", "query": "student challenges teacher worksheet that reduces moral choices and feelings to two boxes", "expected": "m50-conv006961.txt", "overlap": 0.0}
-{"qid": "para-chat-0014", "type": "paraphrase", "query": "group chat transcript quoting detectives analyzing armed men killing several people then lingering over final victim", "expected": "m37-conv005080.txt", "overlap": 0.214}
+{"qid": "para-chat-0014", "type": "paraphrase", "query": "message thread reconstructing armed attackers dropping several people before lingering over final victim", "expected": "m37-conv005080.txt", "overlap": 0.0}
 {"qid": "para-chat-0015", "type": "paraphrase", "query": "small bully promises death and cites fast friend when cornering concert fan", "expected": "m49-conv006899.txt", "overlap": 0.0}
 {"qid": "para-chat-0016", "type": "paraphrase", "query": "short group chat where one reply implies someone secretly knew too much", "expected": "m54-conv007418.txt", "overlap": 0.222}
 {"qid": "para-chat-0017", "type": "paraphrase", "query": "two friends joke that a contest is unfair if the same guy always wins privately", "expected": "m32-conv004244.txt", "overlap": 0.0}
@@ -64,7 +64,7 @@
 {"qid": "para-chat-0063", "type": "paraphrase", "query": "someone recognizes a woman's forgotten travel bag after being shown her photo", "expected": "m6-conv000987.txt", "overlap": 0.111}
 {"qid": "para-chat-0064", "type": "paraphrase", "query": "brief chat where a woman asks a man to return and he vows at the right time", "expected": "m30-conv003962.txt", "overlap": 0.111}
 {"qid": "para-chat-0065", "type": "paraphrase", "query": "tiny exported group conversation ending with an unsure answer to a confirmation question", "expected": "m54-conv007459.txt", "overlap": 0.111}
-{"qid": "para-chat-0066", "type": "paraphrase", "query": "conversation where two men joke about upsetting a woman over her pet and remorse", "expected": "m37-conv004985.txt", "overlap": 0.0}
+{"qid": "para-chat-0066", "type": "paraphrase", "query": "group messages about harming a woman\u2019s pet and joking she would trade it for substances", "expected": "m37-conv004985.txt", "overlap": 0.125}
 {"qid": "para-chat-0067", "type": "paraphrase", "query": "two-person group message about a surprising location and being told to act bored", "expected": "m35-conv004631.txt", "overlap": 0.125}
 {"qid": "para-chat-0068", "type": "paraphrase", "query": "friend mocks her choices in partners and imagines fancy formal clothes for a man", "expected": "m35-conv004775.txt", "overlap": 0.0}
 {"qid": "para-chat-0069", "type": "paraphrase", "query": "group chat where two homesick men abroad recall birthplace and childhood landmarks", "expected": "m28-conv003662.txt", "overlap": 0.222}
@@ -124,8 +124,8 @@
 {"qid": "para-chat-0123", "type": "paraphrase", "query": "doctor reassures frightened patient he is safe in new room away from abuser", "expected": "m53-conv007274.txt", "overlap": 0.125}
 {"qid": "para-chat-0124", "type": "paraphrase", "query": "confession about making a paid murder video and hiding the woman in forest", "expected": "m6-conv000916.txt", "overlap": 0.0}
 {"qid": "para-chat-0125", "type": "paraphrase", "query": "polite houseguest asks host about bed curtains tea and family photos", "expected": "m53-conv007277.txt", "overlap": 0.222}
-{"qid": "para-chat-0126", "type": "paraphrase", "query": "group message about leaving at 7:55 then visiting a friend's empty house", "expected": "m50-conv007029.txt", "overlap": 0.286}
-{"qid": "para-chat-0127", "type": "paraphrase", "query": "movie quote chat where someone doubts the powerful handgun is loaded", "expected": "m4-conv000677.txt", "overlap": 0.5}
+{"qid": "para-chat-0126", "type": "paraphrase", "query": "around eight after everyone leaves two people plan visiting a friend's empty family home", "expected": "m50-conv007029.txt", "overlap": 0.083}
+{"qid": "para-chat-0127", "type": "paraphrase", "query": "brief chat where woman twice says weapon lacks bullets after man recites famous movie threat", "expected": "m4-conv000677.txt", "overlap": 0.071}
 {"qid": "para-chat-0128", "type": "paraphrase", "query": "former lovers in a group chat argue about her husband during their past affair", "expected": "m42-conv005778.txt", "overlap": 0.333}
 {"qid": "para-chat-0129", "type": "paraphrase", "query": "angry detective interrogates a gunman about a missing former associate", "expected": "m4-conv000673.txt", "overlap": 0.0}
 {"qid": "para-chat-0130", "type": "paraphrase", "query": "science fiction chat where one man wants to leave but another refuses without woman", "expected": "m5-conv000805.txt", "overlap": 0.2}
@@ -227,7 +227,7 @@
 {"qid": "para-chat-0226", "type": "paraphrase", "query": "teen film conversation girl explains dating ban until her sister finds someone", "expected": "m0-conv000002.txt", "overlap": 0.182}
 {"qid": "para-chat-0227", "type": "paraphrase", "query": "teen romance group chat where one friend reports angry girl and gets public love poetry", "expected": "m0-conv000188.txt", "overlap": 0.25}
 {"qid": "para-chat-0228", "type": "paraphrase", "query": "chat where questioned worker says animal tubes hold meat and leftovers feed pets", "expected": "m2-conv000387.txt", "overlap": 0.091}
-{"qid": "para-chat-0229", "type": "paraphrase", "query": "angry breakup scene where man chooses to wipe memories after she did first", "expected": "m55-conv007604.txt", "overlap": 0.111}
+{"qid": "para-chat-0229", "type": "paraphrase", "query": "phone group transcript where a betrayed man invokes forgetting the past before cursing his ex", "expected": "m55-conv007604.txt", "overlap": 0.1}
 {"qid": "para-chat-0230", "type": "paraphrase", "query": "conversation asking a homebound writer whether missing the French capital limited imagination", "expected": "m30-conv004021.txt", "overlap": 0.0}
 {"qid": "para-chat-0231", "type": "paraphrase", "query": "unwell composer secretly asks a friend to help write funeral music from memory", "expected": "m16-conv002019.txt", "overlap": 0.3}
 {"qid": "para-chat-0232", "type": "paraphrase", "query": "group messages where medical help is suggested before a stinging bug moves across an arm", "expected": "m34-conv004504.txt", "overlap": 0.091}
@@ -446,7 +446,7 @@
 {"qid": "para-chat-0446", "type": "paraphrase", "query": "movie dialogue chat about a woman asking a man to greet the longtime pianist and remember his old song", "expected": "m42-conv005762.txt", "overlap": 0.083}
 {"qid": "para-chat-0447", "type": "paraphrase", "query": "chat scene where oppressed fighters practice with rocks and courage matters more than strength", "expected": "m40-conv005537.txt", "overlap": 0.111}
 {"qid": "para-chat-0448", "type": "paraphrase", "query": "group message exchange about ordering caffeine then stronger mixed drinks with a brandy splash", "expected": "m2-conv000330.txt", "overlap": 0.1}
-{"qid": "para-chat-0449", "type": "paraphrase", "query": "two-message group chat where someone calls a person and another answers yes", "expected": "m49-conv006793.txt", "overlap": 0.25}
+{"qid": "para-chat-0449", "type": "paraphrase", "query": "two-line phone group message where one member asks for a man and another says yes", "expected": "m49-conv006793.txt", "overlap": 0.111}
 {"qid": "para-chat-0450", "type": "paraphrase", "query": "student invites a girl to ditch class for a hillside, prompting concern", "expected": "m50-conv006952.txt", "overlap": 0.0}
 {"qid": "para-chat-0451", "type": "paraphrase", "query": "short exchange about an unknown woman apparently knowing him despite no school connection", "expected": "m30-conv004057.txt", "overlap": 0.0}
 {"qid": "para-chat-0452", "type": "paraphrase", "query": "group message transcript with one man inviting friends while another reviews final details", "expected": "m38-conv005380.txt", "overlap": 0.1}

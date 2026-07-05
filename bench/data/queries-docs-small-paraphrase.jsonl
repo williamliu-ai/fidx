@@ -1,4 +1,4 @@
-{"qid": "para-docs-small-0000", "type": "paraphrase", "query": "dispute over prejudice as irrational fear and childless same sex relationships in ancestry", "expected": "alt.atheism/51290.txt", "overlap": 0.444}
+{"qid": "para-docs-small-0000", "type": "paraphrase", "query": "argument over anti-gay fear label and claim same-sex couples defy biology and parenting", "expected": "alt.atheism/51290.txt", "overlap": 0.2}
 {"qid": "para-docs-small-0001", "type": "paraphrase", "query": "faith forum reply rejecting miracle history by comparing school lessons and old war evidence", "expected": "alt.atheism/53538.txt", "overlap": 0.417}
 {"qid": "para-docs-small-0002", "type": "paraphrase", "query": "virtual memory placement between older built in disk and slightly faster add on hard drive", "expected": "comp.os.ms-windows.misc/10107.txt", "overlap": 0.167}
 {"qid": "para-docs-small-0003", "type": "paraphrase", "query": "software to draw labeled relationship maps from pair lists with thicker lines for higher counts", "expected": "comp.graphics/38406.txt", "overlap": 0.091}
@@ -7,7 +7,7 @@
 {"qid": "para-docs-small-0006", "type": "paraphrase", "query": "satirical exchange where following a sacred manual to gain conviction already assumes conviction", "expected": "alt.atheism/53757.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0007", "type": "paraphrase", "query": "Can daily recovery snapshots save compressed disk details before a crash destroys everything", "expected": "comp.os.ms-windows.misc/10103.txt", "overlap": 0.091}
 {"qid": "para-docs-small-0008", "type": "paraphrase", "query": "software needed to use obscure one megabyte video board with modeling program", "expected": "comp.graphics/38364.txt", "overlap": 0.125}
-{"qid": "para-docs-small-0009", "type": "paraphrase", "query": "request for software to run a specific old machine that prints colored pages", "expected": "comp.os.ms-windows.misc/10032.txt", "overlap": 0.0}
+{"qid": "para-docs-small-0009", "type": "paraphrase", "query": "person asks for software to make a particular old multicolor liquid-spray printer work", "expected": "comp.os.ms-windows.misc/10032.txt", "overlap": 0.111}
 {"qid": "para-docs-small-0010", "type": "paraphrase", "query": "guide to turning noisy message-board fights into clear points and spotting bad tactics", "expected": "alt.atheism/52909.txt", "overlap": 0.3}
 {"qid": "para-docs-small-0011", "type": "paraphrase", "query": "post doubting business computer surveys because one omitted a popular desktop system", "expected": "comp.os.ms-windows.misc/10109.txt", "overlap": 0.2}
 {"qid": "para-docs-small-0012", "type": "paraphrase", "query": "atheist discussion reply says a university shooter needs no rational explanation beyond insanity", "expected": "alt.atheism/53143.txt", "overlap": 0.0}
@@ -42,7 +42,7 @@
 {"qid": "para-docs-small-0041", "type": "paraphrase", "query": "reply asking how a creator beyond knowledge can lack a front yet keep a rear", "expected": "alt.atheism/51201.txt", "overlap": 0.1}
 {"qid": "para-docs-small-0042", "type": "paraphrase", "query": "old desktop shell asks to recreate icon sets after launch suspected bad storage hardware", "expected": "comp.os.ms-windows.misc/10087.txt", "overlap": 0.077}
 {"qid": "para-docs-small-0043", "type": "paraphrase", "query": "arguing whether creatures' automatic conduct can be ethical unlike objects merely following rules", "expected": "alt.atheism/53192.txt", "overlap": 0.091}
-{"qid": "para-docs-small-0044", "type": "paraphrase", "query": "old display adapter for motherboard expansion slot price memory capacity and desktop speed", "expected": "comp.graphics/38578.txt", "overlap": 0.0}
+{"qid": "para-docs-small-0044", "type": "paraphrase", "query": "availability price memory options and desktop speed for a fast motherboard slot display adapter", "expected": "comp.graphics/38578.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0045", "type": "paraphrase", "query": "new skeptic welcomed after questioning replies to a stubborn defender of harmless faith", "expected": "alt.atheism/53085.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0046", "type": "paraphrase", "query": "orientation for newcomers to an online disbelief debate forum listing five recurring guides", "expected": "alt.atheism/54164.txt", "overlap": 0.1}
 {"qid": "para-docs-small-0047", "type": "paraphrase", "query": "hard and soft nonbelief categories blur because deity proofs keep failing", "expected": "alt.atheism/51247.txt", "overlap": 0.0}
@@ -55,8 +55,8 @@
 {"qid": "para-docs-small-0054", "type": "paraphrase", "query": "complaint that oversized shared pictures made paid home news downloads take much longer", "expected": "comp.os.ms-windows.misc/10097.txt", "overlap": 0.2}
 {"qid": "para-docs-small-0055", "type": "paraphrase", "query": "old graphical desktop fails to release capacity after software exits leaving high address areas occupied", "expected": "comp.os.ms-windows.misc/10105.txt", "overlap": 0.071}
 {"qid": "para-docs-small-0056", "type": "paraphrase", "query": "online archive for downloadable overhead views and geographic images of the whole country", "expected": "comp.graphics/38690.txt", "overlap": 0.0}
-{"qid": "para-docs-small-0057", "type": "paraphrase", "query": "forgotten phone number for buying animation software directly for 299 dollars", "expected": "comp.graphics/38830.txt", "overlap": 0.25}
-{"qid": "para-docs-small-0058", "type": "paraphrase", "query": "finding where two 3d shapes cross with simple code example", "expected": "comp.graphics/38443.txt", "overlap": 0.0}
+{"qid": "para-docs-small-0057", "type": "paraphrase", "query": "reply adding the missed toll-free contact for buying a costly retro animation program", "expected": "comp.graphics/38830.txt", "overlap": 0.0}
+{"qid": "para-docs-small-0058", "type": "paraphrase", "query": "beginner friendly code for finding where two curved 3D objects cross", "expected": "comp.graphics/38443.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0059", "type": "paraphrase", "query": "heated newsgroup argument accusing opponent of dodging faith label with church membership reply", "expected": "alt.atheism/54134.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0060", "type": "paraphrase", "query": "ancient scripture scribes preserved mistakes once writings became sacred", "expected": "alt.atheism/54257.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0061", "type": "paraphrase", "query": "Usenet rebuttal mocking humanities student with tiny company initials made from particles versus ethics evidence", "expected": "alt.atheism/54198.txt", "overlap": 0.0}
@@ -110,7 +110,7 @@
 {"qid": "para-docs-small-0109", "type": "paraphrase", "query": "debate about copied legal protection against harsh penalties and later obedience to founders' meaning", "expected": "alt.atheism/53414.txt", "overlap": 0.091}
 {"qid": "para-docs-small-0110", "type": "paraphrase", "query": "cheap way to get animation program from maker instead of secondhand outdated release", "expected": "comp.graphics/38783.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0111", "type": "paraphrase", "query": "old file tool reads small floppy fully but larger one nearly finishes despite spare capacity", "expected": "comp.os.ms-windows.misc/10090.txt", "overlap": 0.077}
-{"qid": "para-docs-small-0112", "type": "paraphrase", "query": "former believer found disputed faith novel allegorical and backlash moved him from belief", "expected": "alt.atheism/53410.txt", "overlap": 0.1}
+{"qid": "para-docs-small-0112", "type": "paraphrase", "query": "former believer says banned novel's fictional brothel names exposed blind religious censorship", "expected": "alt.atheism/53410.txt", "overlap": 0.083}
 {"qid": "para-docs-small-0113", "type": "paraphrase", "query": "old drawing app output bugs off-page speck erased image and color blends became round spots", "expected": "comp.graphics/38570.txt", "overlap": 0.0}
 {"qid": "para-docs-small-0114", "type": "paraphrase", "query": "start location of color palette data for obscure old PC display setting 104", "expected": "comp.graphics/38488.txt", "overlap": 0.111}
 {"qid": "para-docs-small-0115", "type": "paraphrase", "query": "faster round shape pixel plotting using grouped spans with academic references", "expected": "comp.graphics/38244.txt", "overlap": 0.111}

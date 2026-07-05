@@ -8,11 +8,11 @@
 {"qid": "para-docs-0007", "type": "paraphrase", "query": "person misses old car's little hinged airflow pane beside the windshield", "expected": "rec.autos/101587.txt", "overlap": 0.0}
 {"qid": "para-docs-0008", "type": "paraphrase", "query": "old email says voice coder is too slow for real time secure calls on normal computers", "expected": "sci.crypt/15971.txt", "overlap": 0.154}
 {"qid": "para-docs-0009", "type": "paraphrase", "query": "outside scholarship checking a disputed scripture's authorship, wording patterns, narrative coherence, and real-world traces", "expected": "alt.atheism/53282.txt", "overlap": 0.0}
-{"qid": "para-docs-0010", "type": "paraphrase", "query": "Old small car races without pedal after mechanic blames air leak, asks repair versus replacement", "expected": "rec.autos/102981.txt", "overlap": 0.2}
+{"qid": "para-docs-0010", "type": "paraphrase", "query": "friend's old compact car speeds up alone mechanic wants costly full fuel mixer replacement", "expected": "rec.autos/102981.txt", "overlap": 0.077}
 {"qid": "para-docs-0011", "type": "paraphrase", "query": "eye hue sensing debate about two paired channels versus three display-like primaries", "expected": "sci.med/58114.txt", "overlap": 0.0}
 {"qid": "para-docs-0012", "type": "paraphrase", "query": "vintage studio gear making rotating instrument sounds, final piece offered privately", "expected": "misc.forsale/76013.txt", "overlap": 0.0}
-{"qid": "para-docs-0013", "type": "paraphrase", "query": "old Microsoft 3.1 display adapter stuck at basic resolution needs setup files", "expected": "comp.graphics/38813.txt", "overlap": 0.0}
-{"qid": "para-docs-0014", "type": "paraphrase", "query": "year a famous baseball team first played on the West Coast after moving", "expected": "rec.sport.baseball/102696.txt", "overlap": 0.2}
+{"qid": "para-docs-0013", "type": "paraphrase", "query": "request for old display board software enabling higher than basic resolution on early desktop system", "expected": "comp.graphics/38813.txt", "overlap": 0.0}
+{"qid": "para-docs-0014", "type": "paraphrase", "query": "friend's wager about the first season after a famous baseball team's east-to-west move", "expected": "rec.sport.baseball/102696.txt", "overlap": 0.2}
 {"qid": "para-docs-0015", "type": "paraphrase", "query": "officials could have phoned cult leader out before fatal confrontation and blame confusion", "expected": "talk.politics.guns/54614.txt", "overlap": 0.111}
 {"qid": "para-docs-0016", "type": "paraphrase", "query": "lecture notes about experimental reusable rocket ascent, motor shutoff timing, and rider force limits", "expected": "sci.space/61172.txt", "overlap": 0.25}
 {"qid": "para-docs-0017", "type": "paraphrase", "query": "rider compares backup head protection after paint touch up and asks passenger size advice", "expected": "rec.motorcycles/104282.txt", "overlap": 0.333}
@@ -26,7 +26,7 @@
 {"qid": "para-docs-0025", "type": "paraphrase", "query": "older desktop shows pale stripes while moving through pages only on larger display color mode", "expected": "comp.sys.mac.hardware/51678.txt", "overlap": 0.077}
 {"qid": "para-docs-0026", "type": "paraphrase", "query": "short reply calling screen studios two-faced for selling weapon-heavy shows while opposing them", "expected": "talk.politics.guns/53370.txt", "overlap": 0.0}
 {"qid": "para-docs-0027", "type": "paraphrase", "query": "mail-in offer for novice hardware help requiring requester-paid return postage", "expected": "sci.electronics/53939.txt", "overlap": 0.0}
-{"qid": "para-docs-0028", "type": "paraphrase", "query": "springtime pro ball division records with home road splits and prior day game results", "expected": "rec.sport.baseball/104390.txt", "overlap": 0.25}
+{"qid": "para-docs-0028", "type": "paraphrase", "query": "early season pro baseball tables after mid April games with home road records and rainout", "expected": "rec.sport.baseball/104390.txt", "overlap": 0.385}
 {"qid": "para-docs-0029", "type": "paraphrase", "query": "long term liver disease wording has no broad rule beyond two blurry categories", "expected": "sci.med/59461.txt", "overlap": 0.2}
 {"qid": "para-docs-0030", "type": "paraphrase", "query": "old Japanese car failed, seeking advice on Nordic factory pickup and bringing vehicle home", "expected": "rec.autos/102970.txt", "overlap": 0.25}
 {"qid": "para-docs-0031", "type": "paraphrase", "query": "budget baseball roster arguing a title contender could be assembled from cheap salaries", "expected": "rec.sport.baseball/102584.txt", "overlap": 0.0}
@@ -57,14 +57,14 @@
 {"qid": "para-docs-0056", "type": "paraphrase", "query": "How special data center power sockets use separate safety paths to stay quiet during faults", "expected": "sci.electronics/53882.txt", "overlap": 0.083}
 {"qid": "para-docs-0057", "type": "paraphrase", "query": "eliminating shared hum while canceling tiny voltage traces with high gain and guarded cables", "expected": "sci.electronics/53764.txt", "overlap": 0.0}
 {"qid": "para-docs-0058", "type": "paraphrase", "query": "old Apple printing beep closes windows fixed by increasing file manager memory", "expected": "comp.sys.mac.hardware/52326.txt", "overlap": 0.273}
-{"qid": "para-docs-0059", "type": "paraphrase", "query": "independent contractors holding split encryption secrets vulnerable to government contract pressure", "expected": "sci.crypt/15424.txt", "overlap": 0.2}
+{"qid": "para-docs-0059", "type": "paraphrase", "query": "spy agency could coerce supposedly neutral encryption escrow holders by redirecting paid work", "expected": "sci.crypt/15424.txt", "overlap": 0.182}
 {"qid": "para-docs-0060", "type": "paraphrase", "query": "government scrambled-phone plan might block rogue officers from turning secret snooping into court cases", "expected": "sci.crypt/15373.txt", "overlap": 0.0}
 {"qid": "para-docs-0061", "type": "paraphrase", "query": "persuading nonbelievers by historical evidence fails when supernatural claims get explained away", "expected": "soc.religion.christian/20545.txt", "overlap": 0.111}
 {"qid": "para-docs-0062", "type": "paraphrase", "query": "wanted early Apple laptop in working shape with add on disk reader and minimum storage memory", "expected": "comp.sys.mac.hardware/52101.txt", "overlap": 0.083}
 {"qid": "para-docs-0063", "type": "paraphrase", "query": "Can an early laptop safely use a desktop typing board and pointer together?", "expected": "comp.sys.mac.hardware/52073.txt", "overlap": 0.0}
 {"qid": "para-docs-0064", "type": "paraphrase", "query": "space probe name explained through old western ballad about a digger's daughter and forced initials", "expected": "sci.space/60865.txt", "overlap": 0.417}
 {"qid": "para-docs-0065", "type": "paraphrase", "query": "seventeen inch screen for workstation preferred over shaky office display plus adapter purchase", "expected": "comp.sys.ibm.pc.hardware/61168.txt", "overlap": 0.091}
-{"qid": "para-docs-0066", "type": "paraphrase", "query": "whether a 1990s Apple desktop or similar models support newer peripheral bus standard", "expected": "comp.sys.mac.hardware/52084.txt", "overlap": 0.2}
+{"qid": "para-docs-0066", "type": "paraphrase", "query": "whether one older Apple desktop or any related models support newer peripheral connection standard", "expected": "comp.sys.mac.hardware/52084.txt", "overlap": 0.182}
 {"qid": "para-docs-0067", "type": "paraphrase", "query": "truck owner review of anti theft device covering tire taps, cut power, talking proximity add-on", "expected": "rec.autos/103665.txt", "overlap": 0.286}
 {"qid": "para-docs-0068", "type": "paraphrase", "query": "old computer choice for moving big pictures to screen despite general speed table", "expected": "comp.sys.ibm.pc.hardware/61040.txt", "overlap": 0.273}
 {"qid": "para-docs-0069", "type": "paraphrase", "query": "argument that ordinary American highways are smooth enough for triple digit driving", "expected": "rec.autos/103384.txt", "overlap": 0.111}
@@ -93,21 +93,21 @@
 {"qid": "para-docs-0092", "type": "paraphrase", "query": "brief message asking for a citation to an article about tick disease immunization", "expected": "sci.med/58930.txt", "overlap": 0.0}
 {"qid": "para-docs-0093", "type": "paraphrase", "query": "used movie tapes sale before relocation with six titles and bounced buyer follow-up", "expected": "misc.forsale/76811.txt", "overlap": 0.2}
 {"qid": "para-docs-0094", "type": "paraphrase", "query": "ham operator newly reading space group wants model or poster of early weather spacecraft", "expected": "sci.space/60810.txt", "overlap": 0.333}
-{"qid": "para-docs-0095", "type": "paraphrase", "query": "skeptical fan argues underdog hockey team can still win after poor season", "expected": "rec.sport.hockey/53708.txt", "overlap": 0.091}
+{"qid": "para-docs-0095", "type": "paraphrase", "query": "spelling jab over an unbeaten postseason claim, arguing season records don't decide series", "expected": "rec.sport.hockey/53708.txt", "overlap": 0.1}
 {"qid": "para-docs-0096", "type": "paraphrase", "query": "text input rings after remapped shortcut keys because validation rejects the edit", "expected": "comp.windows.x/67069.txt", "overlap": 0.182}
-{"qid": "para-docs-0097", "type": "paraphrase", "query": "former disgraced player hosts weekday national sports radio and gives thoughtful baseball business commentary", "expected": "rec.sport.baseball/104850.txt", "overlap": 0.462}
+{"qid": "para-docs-0097", "type": "paraphrase", "query": "daily afternoon national sports talk hosted by disgraced record setting hitter sounds thoughtful", "expected": "rec.sport.baseball/104850.txt", "overlap": 0.25}
 {"qid": "para-docs-0098", "type": "paraphrase", "query": "spring presidential agenda police leaders charity visitor youth singers football winners later foreign guests", "expected": "talk.politics.misc/178319.txt", "overlap": 0.071}
 {"qid": "para-docs-0099", "type": "paraphrase", "query": "argument that agents wanted fatal sect raid despite family visit and children inside", "expected": "talk.religion.misc/84106.txt", "overlap": 0.455}
 {"qid": "para-docs-0100", "type": "paraphrase", "query": "campus seller warns old desktop may be unreliable with disk slot and paper output glitches", "expected": "comp.sys.mac.hardware/52243.txt", "overlap": 0.0}
 {"qid": "para-docs-0101", "type": "paraphrase", "query": "young mother recounts city mobs killing her husband while authorities failed to help", "expected": "talk.politics.mideast/77207.txt", "overlap": 0.5}
 {"qid": "para-docs-0102", "type": "paraphrase", "query": "why default printer hardware leaves the seventh signal free for an audio board", "expected": "comp.sys.ibm.pc.hardware/60476.txt", "overlap": 0.222}
-{"qid": "para-docs-0103", "type": "paraphrase", "query": "hockey team management debate over firing coach and replacing older players with youth", "expected": "rec.sport.hockey/53833.txt", "overlap": 0.4}
+{"qid": "para-docs-0103", "type": "paraphrase", "query": "early nineties hockey debate about shared bosses choosing prospects over aging role players", "expected": "rec.sport.hockey/53833.txt", "overlap": 0.0}
 {"qid": "para-docs-0104", "type": "paraphrase", "query": "whether bike headgear remains safe after a short fall onto hard ground", "expected": "rec.motorcycles/104562.txt", "overlap": 0.091}
 {"qid": "para-docs-0105", "type": "paraphrase", "query": "sarcastic reply to alternative cure conspiracy asking if physicians came from space", "expected": "sci.med/58758.txt", "overlap": 0.0}
 {"qid": "para-docs-0106", "type": "paraphrase", "query": "quiet sound source routing using logic controlled four pair selector instead of mechanical contacts", "expected": "sci.electronics/53970.txt", "overlap": 0.0}
 {"qid": "para-docs-0107", "type": "paraphrase", "query": "old compact desktop cannot print shaded family photos despite upgraded processor asks about program workaround", "expected": "comp.sys.mac.hardware/51780.txt", "overlap": 0.071}
 {"qid": "para-docs-0108", "type": "paraphrase", "query": "why a baseball thrower using his left arm got a nickname from field compass layout", "expected": "rec.sport.baseball/104962.txt", "overlap": 0.25}
-{"qid": "para-docs-0109", "type": "paraphrase", "query": "daily pro hockey box scores with period-by-period goals and player point lists", "expected": "rec.sport.hockey/53532.txt", "overlap": 0.1}
+{"qid": "para-docs-0109", "type": "paraphrase", "query": "four pro ice contests from one midweek night, including shutout, extra-time win, and six-all draw", "expected": "rec.sport.hockey/53532.txt", "overlap": 0.0}
 {"qid": "para-docs-0110", "type": "paraphrase", "query": "asking which weekly computer magazine issue tested drive controller cards on three motherboard slots", "expected": "comp.sys.ibm.pc.hardware/60566.txt", "overlap": 0.273}
 {"qid": "para-docs-0111", "type": "paraphrase", "query": "novice asks whether a visual program blends two pictures or warps their shapes", "expected": "comp.graphics/37938.txt", "overlap": 0.0}
 {"qid": "para-docs-0112", "type": "paraphrase", "query": "contacting nearby politician offices with computer-sent letters instead of staff-filtered phone comments", "expected": "sci.crypt/15688.txt", "overlap": 0.1}
@@ -124,7 +124,7 @@
 {"qid": "para-docs-0123", "type": "paraphrase", "query": "artificial sugar substitute safety body breakdown poisons inherited condition risks for kids and pregnancy", "expected": "sci.med/58898.txt", "overlap": 0.167}
 {"qid": "para-docs-0124", "type": "paraphrase", "query": "last online sale update for old fantasy gaming periodicals showing wear grades and absent extras", "expected": "misc.forsale/75929.txt", "overlap": 0.154}
 {"qid": "para-docs-0125", "type": "paraphrase", "query": "rebuttal of wartime village attack story about victim counts and men hiding in dresses", "expected": "talk.politics.mideast/76369.txt", "overlap": 0.3}
-{"qid": "para-docs-0126", "type": "paraphrase", "query": "questions about safe amounts of a mood medicine for mild sadness and replies by email", "expected": "sci.med/59437.txt", "overlap": 0.0}
+{"qid": "para-docs-0126", "type": "paraphrase", "query": "request for amount advice on a prescription mood medicine for mild low mood", "expected": "sci.med/59437.txt", "overlap": 0.0}
 {"qid": "para-docs-0127", "type": "paraphrase", "query": "infant entering the afterlife prior to the savior making access possible", "expected": "soc.religion.christian/21538.txt", "overlap": 0.0}
 {"qid": "para-docs-0128", "type": "paraphrase", "query": "external removable storage prepared high capacity media then internal reader rejected everything", "expected": "comp.sys.mac.hardware/52261.txt", "overlap": 0.091}
 {"qid": "para-docs-0129", "type": "paraphrase", "query": "fixed online address for medieval manuscript pictures with country ending instead of education", "expected": "comp.graphics/38278.txt", "overlap": 0.1}
@@ -166,7 +166,7 @@
 {"qid": "para-docs-0165", "type": "paraphrase", "query": "religious debate over following Rome's leader when his short term judgments may be mistaken", "expected": "soc.religion.christian/20911.txt", "overlap": 0.222}
 {"qid": "para-docs-0166", "type": "paraphrase", "query": "complaint that doctor-heavy policy review panel lacked enough nurses", "expected": "talk.politics.misc/179047.txt", "overlap": 0.25}
 {"qid": "para-docs-0167", "type": "paraphrase", "query": "new vehicle seller padded government fees after agreed price buyer caught bad math", "expected": "rec.autos/102906.txt", "overlap": 0.333}
-{"qid": "para-docs-0168", "type": "paraphrase", "query": "1993 pro ice sport game two scoreboard with period scoring shots and attendance", "expected": "rec.sport.hockey/54513.txt", "overlap": 0.333}
+{"qid": "para-docs-0168", "type": "paraphrase", "query": "four second-match ice postseason box summaries from one spring night in the early nineties", "expected": "rec.sport.hockey/54513.txt", "overlap": 0.0}
 {"qid": "para-docs-0169", "type": "paraphrase", "query": "early nineties picture file update with rectangle storage and lossy size reduction support", "expected": "comp.graphics/39654.txt", "overlap": 0.0}
 {"qid": "para-docs-0170", "type": "paraphrase", "query": "post doubting cult members started compound blaze and mocking eyewitness certainty about no power", "expected": "talk.politics.guns/54424.txt", "overlap": 0.182}
 {"qid": "para-docs-0171", "type": "paraphrase", "query": "angry forum reply mocks hospital commenter as psychiatric patient during regional peace discussion", "expected": "talk.politics.mideast/77210.txt", "overlap": 0.167}
@@ -220,8 +220,8 @@
 {"qid": "para-docs-0219", "type": "paraphrase", "query": "sarcastic reply asking for clearer explanation of grilled meat smoke health claim", "expected": "sci.med/58918.txt", "overlap": 0.3}
 {"qid": "para-docs-0220", "type": "paraphrase", "query": "young Scandinavian player scoring correction says California hockey club likely lost the deal", "expected": "rec.sport.hockey/54525.txt", "overlap": 0.25}
 {"qid": "para-docs-0221", "type": "paraphrase", "query": "sarcastic reply saying a car driver's glances proved murderous intent toward a rider", "expected": "rec.motorcycles/103239.txt", "overlap": 0.0}
-{"qid": "para-docs-0222", "type": "paraphrase", "query": "argument that death threats over offensive writing reveal uncivilized victim blaming", "expected": "alt.atheism/53656.txt", "overlap": 0.333}
-{"qid": "para-docs-0223", "type": "paraphrase", "query": "debate over whether the star slugger should hit before the streaky cleanup teammate", "expected": "rec.sport.baseball/104843.txt", "overlap": 0.222}
+{"qid": "para-docs-0222", "type": "paraphrase", "query": "post argues death threats over an offensive novel expose belief based violence as immoral", "expected": "alt.atheism/53656.txt", "overlap": 0.091}
+{"qid": "para-docs-0223", "type": "paraphrase", "query": "argues the patient star should come before unreliable slugger despite handedness matchup logic", "expected": "rec.sport.baseball/104843.txt", "overlap": 0.0}
 {"qid": "para-docs-0224", "type": "paraphrase", "query": "early Apple laptop display enlargement utility compatible with seventh-generation operating software", "expected": "comp.sys.mac.hardware/51599.txt", "overlap": 0.0}
 {"qid": "para-docs-0225", "type": "paraphrase", "query": "two baseball bets: traded rookie disappoints and aging first baseman's bad spine ends career", "expected": "rec.sport.baseball/104553.txt", "overlap": 0.25}
 {"qid": "para-docs-0226", "type": "paraphrase", "query": "researcher jokes spy fears seemed justified when old battlefield was full of listening towers", "expected": "sci.crypt/15711.txt", "overlap": 0.0}
@@ -231,25 +231,25 @@
 {"qid": "para-docs-0230", "type": "paraphrase", "query": "doctor says treat cracked lower-leg dryness with petroleum jelly after a short warm bath", "expected": "sci.med/59538.txt", "overlap": 0.0}
 {"qid": "para-docs-0231", "type": "paraphrase", "query": "old sitcom castaways matched with deadly sins and irreligious guest character vices", "expected": "talk.religion.misc/84074.txt", "overlap": 0.0}
 {"qid": "para-docs-0232", "type": "paraphrase", "query": "federal raid armored vehicle breached home with kids, compared to Chinese protest deaths", "expected": "talk.politics.misc/178912.txt", "overlap": 0.0}
-{"qid": "para-docs-0233", "type": "paraphrase", "query": "old graphical desktop build fails because a vendor linker setting was missing", "expected": "comp.windows.x/66936.txt", "overlap": 0.0}
+{"qid": "para-docs-0233", "type": "paraphrase", "query": "old Unix window manager build fixed by vendor linker compatibility switch", "expected": "comp.windows.x/66936.txt", "overlap": 0.0}
 {"qid": "para-docs-0234", "type": "paraphrase", "query": "utility for moving school image scans from rival desktop floppies to a PC", "expected": "comp.os.ms-windows.misc/10832.txt", "overlap": 0.0}
 {"qid": "para-docs-0235", "type": "paraphrase", "query": "old computer pointer skips sideways fixed by cleaning dirt from inside moving parts", "expected": "comp.os.ms-windows.misc/9913.txt", "overlap": 0.273}
 {"qid": "para-docs-0236", "type": "paraphrase", "query": "alternative terminal program offering flashing caret settings and a small Unix shell compatibility fix", "expected": "comp.windows.x/68110.txt", "overlap": 0.083}
 {"qid": "para-docs-0237", "type": "paraphrase", "query": "belief that real spiritual rebirth removes same sex attraction, not moral effort alone", "expected": "soc.religion.christian/21722.txt", "overlap": 0.0}
 {"qid": "para-docs-0238", "type": "paraphrase", "query": "post defending added penalties for prejudice driven attacks as equal treatment for everyone", "expected": "talk.politics.misc/177020.txt", "overlap": 0.1}
 {"qid": "para-docs-0239", "type": "paraphrase", "query": "baseball fan suggests forest workers and old minor league beer nod as new team names", "expected": "rec.sport.baseball/104873.txt", "overlap": 0.167}
-{"qid": "para-docs-0240", "type": "paraphrase", "query": "former believer leaves church over equality morals and unwanted rescue through sacrifice", "expected": "talk.religion.misc/84079.txt", "overlap": 0.1}
+{"qid": "para-docs-0240", "type": "paraphrase", "query": "former churchgoer rejects savior dying for them, grounds ethics in self, compares faith to childhood protector", "expected": "talk.religion.misc/84079.txt", "overlap": 0.25}
 {"qid": "para-docs-0241", "type": "paraphrase", "query": "why satellite space flash locations rely on brightness differences not tiny clock delays", "expected": "sci.space/61409.txt", "overlap": 0.1}
 {"qid": "para-docs-0242", "type": "paraphrase", "query": "angry response to pricing government mandated phone spying instead of defending public liberty", "expected": "sci.crypt/15544.txt", "overlap": 0.273}
 {"qid": "para-docs-0243", "type": "paraphrase", "query": "Need reusable code to turn a screen drawing into printable page description output", "expected": "comp.windows.x/67280.txt", "overlap": 0.1}
 {"qid": "para-docs-0244", "type": "paraphrase", "query": "graphical display system cannot reliably reveal remaining space before trying an operation", "expected": "comp.windows.x/66955.txt", "overlap": 0.091}
 {"qid": "para-docs-0245", "type": "paraphrase", "query": "Answer naming a university archive folder for free language tools for an old controller chip", "expected": "sci.electronics/53919.txt", "overlap": 0.0}
-{"qid": "para-docs-0246", "type": "paraphrase", "query": "angry political reply saying society should value people over profit and comfort", "expected": "talk.politics.misc/178749.txt", "overlap": 0.111}
+{"qid": "para-docs-0246", "type": "paraphrase", "query": "angry post blaming profit-centered social rules instead of wealthy people, ending with partisan violence joke", "expected": "talk.politics.misc/178749.txt", "overlap": 0.0}
 {"qid": "para-docs-0247", "type": "paraphrase", "query": "early season baseball fan argues established team beats expansion rival position by position", "expected": "rec.sport.baseball/102695.txt", "overlap": 0.182}
 {"qid": "para-docs-0248", "type": "paraphrase", "query": "old compact desktop storage replacement reliability and whether standing case upright affects it", "expected": "comp.sys.mac.hardware/51617.txt", "overlap": 0.0}
 {"qid": "para-docs-0249", "type": "paraphrase", "query": "computer speed button changes expensive car into toy, owner wants milder slowdown", "expected": "comp.sys.ibm.pc.hardware/60507.txt", "overlap": 0.273}
 {"qid": "para-docs-0250", "type": "paraphrase", "query": "seeking a simple computer shape of a fabric making machine for a study movie", "expected": "comp.graphics/39658.txt", "overlap": 0.111}
-{"qid": "para-docs-0251", "type": "paraphrase", "query": "Help choosing between two large PC displays and asking about known flaws", "expected": "comp.sys.ibm.pc.hardware/60169.txt", "overlap": 0.0}
+{"qid": "para-docs-0251", "type": "paraphrase", "query": "buying advice comparing two large CRT displays, one with finer picture grid", "expected": "comp.sys.ibm.pc.hardware/60169.txt", "overlap": 0.111}
 {"qid": "para-docs-0252", "type": "paraphrase", "query": "old upgraded desktop disk speed near one megabyte asks whether reformatting will help", "expected": "comp.sys.ibm.pc.hardware/58913.txt", "overlap": 0.091}
 {"qid": "para-docs-0253", "type": "paraphrase", "query": "car buyer asks if choosing reduced lawsuit rights lowers costs and is worthwhile", "expected": "rec.autos/103321.txt", "overlap": 0.1}
 {"qid": "para-docs-0254", "type": "paraphrase", "query": "religious argument that condemning others' actions turns into contempt and pushes them from faith", "expected": "soc.religion.christian/21503.txt", "overlap": 0.111}
@@ -276,8 +276,8 @@
 {"qid": "para-docs-0275", "type": "paraphrase", "query": "processor sales restriction rebutted by magazine ad and dream fast plug-in replacement", "expected": "comp.sys.ibm.pc.hardware/59003.txt", "overlap": 0.0}
 {"qid": "para-docs-0276", "type": "paraphrase", "query": "evidence based inquiry can test unseen influences while faith overstates certainty", "expected": "soc.religion.christian/21324.txt", "overlap": 0.0}
 {"qid": "para-docs-0277", "type": "paraphrase", "query": "youth classroom software fair proposal guidelines with mailing choices and self funded equipment", "expected": "comp.graphics/38658.txt", "overlap": 0.091}
-{"qid": "para-docs-0278", "type": "paraphrase", "query": "baseball fan seeking return date for a sidelined pitcher with unclear injury", "expected": "rec.sport.baseball/104434.txt", "overlap": 0.0}
-{"qid": "para-docs-0279", "type": "paraphrase", "query": "Can image files be opened on a normal computer without extra equipment", "expected": "comp.graphics/38960.txt", "overlap": 0.25}
+{"qid": "para-docs-0278", "type": "paraphrase", "query": "fan seeks update on a sidelined baseball pitcher and his expected return date", "expected": "rec.sport.baseball/104434.txt", "overlap": 0.0}
+{"qid": "para-docs-0279", "type": "paraphrase", "query": "campus staff asks whether compressed picture files need extra equipment to display", "expected": "comp.graphics/38960.txt", "overlap": 0.091}
 {"qid": "para-docs-0280", "type": "paraphrase", "query": "old Apple printer on a PC using crossed wiring and port speed settings", "expected": "sci.electronics/53732.txt", "overlap": 0.125}
 {"qid": "para-docs-0281", "type": "paraphrase", "query": "holy meal origins in an older family holiday, simplified after overeating and disrespect", "expected": "talk.religion.misc/84004.txt", "overlap": 0.1}
 {"qid": "para-docs-0282", "type": "paraphrase", "query": "joke comparing a rigid religious book debate reply to a fictional alien bureaucrat", "expected": "alt.atheism/53811.txt", "overlap": 0.0}
@@ -286,7 +286,7 @@
 {"qid": "para-docs-0285", "type": "paraphrase", "query": "aftermarket Mac keyboard startup shortcuts work only after happy icon appears", "expected": "comp.sys.mac.hardware/52037.txt", "overlap": 0.182}
 {"qid": "para-docs-0286", "type": "paraphrase", "query": "university master's student 1992 job post listing window app and connected-machine coding work", "expected": "comp.graphics/38976.txt", "overlap": 0.364}
 {"qid": "para-docs-0287", "type": "paraphrase", "query": "checkout levy lowering earnings taxes for medical plans might make shoppers spend less", "expected": "talk.politics.misc/178954.txt", "overlap": 0.2}
-{"qid": "para-docs-0288", "type": "paraphrase", "query": "software code for a graphical command window mimicking a vintage mainframe console", "expected": "comp.windows.x/67345.txt", "overlap": 0.0}
+{"qid": "para-docs-0288", "type": "paraphrase", "query": "code to make a graphical command-line window imitate an old office computer screen", "expected": "comp.windows.x/67345.txt", "overlap": 0.0}
 {"qid": "para-docs-0289", "type": "paraphrase", "query": "argument comparing a domestic raid on an armed sect to 1930s appeasement and wartime repression", "expected": "talk.politics.guns/54317.txt", "overlap": 0.111}
 {"qid": "para-docs-0290", "type": "paraphrase", "query": "securing heavy overnight gear behind the seat on a motorbike without swaying", "expected": "rec.motorcycles/103195.txt", "overlap": 0.0}
 {"qid": "para-docs-0291", "type": "paraphrase", "query": "stick shift fan warns against bump starting and says driver care beats convenience", "expected": "rec.autos/103318.txt", "overlap": 0.083}
@@ -306,7 +306,7 @@
 {"qid": "para-docs-0305", "type": "paraphrase", "query": "wary purchaser asks whether cheap workplace software bundle includes full apps manuals upgrades", "expected": "comp.os.ms-windows.misc/9163.txt", "overlap": 0.077}
 {"qid": "para-docs-0306", "type": "paraphrase", "query": "joke about making a hot drink from a bike engine coolant drain", "expected": "rec.motorcycles/104474.txt", "overlap": 0.25}
 {"qid": "para-docs-0307", "type": "paraphrase", "query": "home hockey team secures postseason berth after rival loses then almost wastes big lead", "expected": "rec.sport.hockey/53854.txt", "overlap": 0.231}
-{"qid": "para-docs-0308", "type": "paraphrase", "query": "seeking support software for a specific old typing machine on early nineties PC system", "expected": "comp.os.ms-windows.misc/10093.txt", "overlap": 0.0}
+{"qid": "para-docs-0308", "type": "paraphrase", "query": "seeking support software for second model quiet office printing device on early nineties PC interface", "expected": "comp.os.ms-windows.misc/10093.txt", "overlap": 0.0}
 {"qid": "para-docs-0309", "type": "paraphrase", "query": "satirical argument that orbital advertisements lighting dusk prove commerce beat religious critics", "expected": "sci.space/61266.txt", "overlap": 0.0}
 {"qid": "para-docs-0310", "type": "paraphrase", "query": "argument that shared norms cannot logically condemn violent personal codes without external grounding", "expected": "alt.atheism/53586.txt", "overlap": 0.0}
 {"qid": "para-docs-0311", "type": "paraphrase", "query": "show C++ standard printed text inside a graphical dialog text box", "expected": "comp.os.ms-windows.misc/10650.txt", "overlap": 0.0}
@@ -318,9 +318,9 @@
 {"qid": "para-docs-0317", "type": "paraphrase", "query": "building old desktop expansion card for extra serial ports using same signal lines", "expected": "comp.sys.ibm.pc.hardware/58902.txt", "overlap": 0.091}
 {"qid": "para-docs-0318", "type": "paraphrase", "query": "legality of private coded mail without state approval in small Pacific country", "expected": "sci.crypt/15865.txt", "overlap": 0.1}
 {"qid": "para-docs-0319", "type": "paraphrase", "query": "bearded spiritual leaders mixed up, one with luxury cars and a free-love commune", "expected": "talk.religion.misc/84284.txt", "overlap": 0.0}
-{"qid": "para-docs-0320", "type": "paraphrase", "query": "why no app can make normal drives read old smaller floppies", "expected": "comp.os.ms-windows.misc/10810.txt", "overlap": 0.143}
-{"qid": "para-docs-0321", "type": "paraphrase", "query": "old workstation drawing program timer reaches eleven frames instead of twenty five", "expected": "comp.windows.x/68013.txt", "overlap": 0.0}
-{"qid": "para-docs-0322", "type": "paraphrase", "query": "asking when a rumored window toolkit will ship and work with older interface programs", "expected": "comp.windows.x/66882.txt", "overlap": 0.111}
+{"qid": "para-docs-0320", "type": "paraphrase", "query": "why older low capacity apple floppies cannot be read by ordinary pc drives", "expected": "comp.os.ms-windows.misc/10810.txt", "overlap": 0.222}
+{"qid": "para-docs-0321", "type": "paraphrase", "query": "windowed drawing program on old workstation refreshed too slowly and worsened during multitasking", "expected": "comp.windows.x/68013.txt", "overlap": 0.0}
+{"qid": "para-docs-0322", "type": "paraphrase", "query": "asking whether unreleased windowing framework can run programs written for older UI library and widget set", "expected": "comp.windows.x/66882.txt", "overlap": 0.0}
 {"qid": "para-docs-0323", "type": "paraphrase", "query": "beginner performer asks how to hire coder illustrator for audio visual group promo", "expected": "comp.graphics/38935.txt", "overlap": 0.0}
 {"qid": "para-docs-0324", "type": "paraphrase", "query": "inherited teenage eye illness possible total sight loss and ways to help", "expected": "sci.med/59081.txt", "overlap": 0.0}
 {"qid": "para-docs-0325", "type": "paraphrase", "query": "old workstation sends many-pixel video too quickly for external display, slower setting works", "expected": "comp.sys.ibm.pc.hardware/61067.txt", "overlap": 0.0}
@@ -416,26 +416,26 @@
 {"qid": "para-docs-0415", "type": "paraphrase", "query": "heavy single lot sale of vintage improvisational music periodicals spanning 1940s to 1980s", "expected": "misc.forsale/74791.txt", "overlap": 0.333}
 {"qid": "para-docs-0416", "type": "paraphrase", "query": "medical body scanner sharpness possible uses after improvement and equipment per scan costs", "expected": "sci.med/59059.txt", "overlap": 0.0}
 {"qid": "para-docs-0417", "type": "paraphrase", "query": "why earlier believers were heard before the savior's later role as mediator", "expected": "soc.religion.christian/20531.txt", "overlap": 0.25}
-{"qid": "para-docs-0418", "type": "paraphrase", "query": "public Unix password-style encryption code request for simple marketing-approved exportable implementation", "expected": "sci.crypt/16062.txt", "overlap": 0.5}
+{"qid": "para-docs-0418", "type": "paraphrase", "query": "freely usable overseas-safe password scrambling source for old workstation sales checkbox need", "expected": "sci.crypt/16062.txt", "overlap": 0.091}
 {"qid": "para-docs-0419", "type": "paraphrase", "query": "why supposedly safer defensive rounds can still kill and worsen close attacks", "expected": "talk.politics.guns/54138.txt", "overlap": 0.222}
 {"qid": "para-docs-0420", "type": "paraphrase", "query": "falling poop hitting fast vehicle glass and puzzling stain beneath the back end", "expected": "rec.autos/103345.txt", "overlap": 0.091}
 {"qid": "para-docs-0421", "type": "paraphrase", "query": "seeking desktop personal planner recommendations with appointments tasks contacts and journal features", "expected": "comp.os.ms-windows.misc/10157.txt", "overlap": 0.0}
 {"qid": "para-docs-0422", "type": "paraphrase", "query": "old workstation windowing package build ignores link failures but applications still run", "expected": "comp.windows.x/66436.txt", "overlap": 0.182}
 {"qid": "para-docs-0423", "type": "paraphrase", "query": "recent new sports coupe purchase asks about late extra maker discount after school deal", "expected": "rec.autos/102841.txt", "overlap": 0.083}
 {"qid": "para-docs-0424", "type": "paraphrase", "query": "cult compound blaze recording dispute about armored vehicle and separate origin points", "expected": "talk.politics.misc/179102.txt", "overlap": 0.0}
-{"qid": "para-docs-0425", "type": "paraphrase", "query": "satirical sports post suggesting beating a rival by killing deporting and fighting its stars", "expected": "rec.sport.hockey/53697.txt", "overlap": 0.1}
+{"qid": "para-docs-0425", "type": "paraphrase", "query": "joke recipe against western Pennsylvania ice team: eliminate captain, expel foreign winger, hire brawlers", "expected": "rec.sport.hockey/53697.txt", "overlap": 0.071}
 {"qid": "para-docs-0426", "type": "paraphrase", "query": "owner says old display lasted eighteen months before dying and being swapped", "expected": "comp.graphics/38515.txt", "overlap": 0.0}
 {"qid": "para-docs-0427", "type": "paraphrase", "query": "arguing old sacred laws need present judgment not excuses about supposedly cruel nearby tribes", "expected": "alt.atheism/53324.txt", "overlap": 0.167}
-{"qid": "para-docs-0428", "type": "paraphrase", "query": "buyer asks for owner experiences before purchasing several old desktop main boards", "expected": "comp.sys.ibm.pc.hardware/60424.txt", "overlap": 0.0}
+{"qid": "para-docs-0428", "type": "paraphrase", "query": "user feedback before buying obscure mixed expansion slot computer parts", "expected": "comp.sys.ibm.pc.hardware/60424.txt", "overlap": 0.1}
 {"qid": "para-docs-0429", "type": "paraphrase", "query": "asking where to find downloadable sports club emblem pictures and send the link", "expected": "rec.sport.baseball/104773.txt", "overlap": 0.111}
 {"qid": "para-docs-0430", "type": "paraphrase", "query": "old computer disk interface board switch configuration for adding a tiny second storage device", "expected": "comp.sys.ibm.pc.hardware/60781.txt", "overlap": 0.083}
 {"qid": "para-docs-0431", "type": "paraphrase", "query": "sarcastic enlistment reply ending with a fake religious choice about an infamous cult killer", "expected": "alt.atheism/53087.txt", "overlap": 0.0}
 {"qid": "para-docs-0432", "type": "paraphrase", "query": "baseball lineup argument faster slugger should hit earlier than erratic power batter", "expected": "rec.sport.baseball/104844.txt", "overlap": 0.1}
 {"qid": "para-docs-0433", "type": "paraphrase", "query": "pharmacy price for a quarter liter bottle of liquid opioid pain medicine", "expected": "sci.med/59032.txt", "overlap": 0.111}
-{"qid": "para-docs-0434", "type": "paraphrase", "query": "angry gun rights post blaming national officers for a deadly religious compound siege", "expected": "talk.politics.guns/55082.txt", "overlap": 0.0}
+{"qid": "para-docs-0434", "type": "paraphrase", "query": "furious militia style reply defending cult compound residents and mocking foreign critic over government raid", "expected": "talk.politics.guns/55082.txt", "overlap": 0.077}
 {"qid": "para-docs-0435", "type": "paraphrase", "query": "fan jokes about back-to-back postseason hockey wins using nineties sitcom references", "expected": "rec.sport.hockey/54233.txt", "overlap": 0.0}
-{"qid": "para-docs-0436", "type": "paraphrase", "query": "sarcastic reply questioning who truly follows Jesus and whether worship criteria match commandments", "expected": "talk.religion.misc/83931.txt", "overlap": 0.364}
-{"qid": "para-docs-0437", "type": "paraphrase", "query": "Short forum reply correcting American digital phone speed to ten thousand bits below an earlier claim", "expected": "comp.sys.ibm.pc.hardware/60153.txt", "overlap": 0.0}
+{"qid": "para-docs-0436", "type": "paraphrase", "query": "sarcastic reply questioning true followers, devotion to the teacher, and old moral laws", "expected": "talk.religion.misc/83931.txt", "overlap": 0.0}
+{"qid": "para-docs-0437", "type": "paraphrase", "query": "reply correcting American digital phone service speed, joking the shortfall hardly matters", "expected": "comp.sys.ibm.pc.hardware/60153.txt", "overlap": 0.0}
 {"qid": "para-docs-0438", "type": "paraphrase", "query": "minister warns not to call mass atrocity heaven's judgment on victims", "expected": "soc.religion.christian/21456.txt", "overlap": 0.0}
 {"qid": "para-docs-0439", "type": "paraphrase", "query": "loud high pitched sound after reassembling color television wondering what part vibrates", "expected": "sci.electronics/54211.txt", "overlap": 0.182}
 {"qid": "para-docs-0440", "type": "paraphrase", "query": "confused scientist asks who created highest maturity grade for crewed spacecraft programming", "expected": "sci.space/61148.txt", "overlap": 0.0}
@@ -456,7 +456,7 @@
 {"qid": "para-docs-0455", "type": "paraphrase", "query": "large backup tape unit never works from new workstation, dealers suggest odd plug", "expected": "comp.sys.mac.hardware/51800.txt", "overlap": 0.091}
 {"qid": "para-docs-0456", "type": "paraphrase", "query": "finding hidden buyer name by comparing copied setup media before and after installation", "expected": "comp.os.ms-windows.misc/9551.txt", "overlap": 0.273}
 {"qid": "para-docs-0457", "type": "paraphrase", "query": "speeding moving frames by storing pictures near the display and avoiding forced flushes", "expected": "comp.windows.x/67144.txt", "overlap": 0.0}
-{"qid": "para-docs-0458", "type": "paraphrase", "query": "is a mail order desktop computer quote with monitor and software too expensive", "expected": "comp.sys.ibm.pc.hardware/60955.txt", "overlap": 0.333}
+{"qid": "para-docs-0458", "type": "paraphrase", "query": "Was a fast early nineties home computer bundle with screen and programs overpriced", "expected": "comp.sys.ibm.pc.hardware/60955.txt", "overlap": 0.0}
 {"qid": "para-docs-0459", "type": "paraphrase", "query": "why circuit joining alloy with trace precious metal forms bridges on damp powered boards", "expected": "sci.electronics/54243.txt", "overlap": 0.091}
 {"qid": "para-docs-0460", "type": "paraphrase", "query": "business leaders trusting government call-scrambling device despite bribed officials exposing company secrets", "expected": "sci.crypt/15376.txt", "overlap": 0.25}
 {"qid": "para-docs-0461", "type": "paraphrase", "query": "cell defenses made during overheating are unrelated to cooking meat until blackened", "expected": "sci.med/59042.txt", "overlap": 0.0}
@@ -474,10 +474,10 @@
 {"qid": "para-docs-0473", "type": "paraphrase", "query": "where to buy a two dozen volt alternating power four way blinking sequencer", "expected": "sci.electronics/53797.txt", "overlap": 0.111}
 {"qid": "para-docs-0474", "type": "paraphrase", "query": "questioning federal handling of a deadly sect siege and noisy pressure tactics", "expected": "talk.politics.guns/54958.txt", "overlap": 0.111}
 {"qid": "para-docs-0475", "type": "paraphrase", "query": "argument excluding self harm from weapon death totals and comparing road fatalities purchase limits", "expected": "talk.politics.guns/54873.txt", "overlap": 0.0}
-{"qid": "para-docs-0476", "type": "paraphrase", "query": "old powerful image and animation computer specs comparing two models and three display options", "expected": "comp.graphics/38861.txt", "overlap": 0.4}
+{"qid": "para-docs-0476", "type": "paraphrase", "query": "early nineties visual computer comparison with plug in speed boards motion rates and costs", "expected": "comp.graphics/38861.txt", "overlap": 0.0}
 {"qid": "para-docs-0477", "type": "paraphrase", "query": "sarcastic biker forum post parodying angry liberty claims about weapons and head protection", "expected": "rec.motorcycles/105259.txt", "overlap": 0.0}
-{"qid": "para-docs-0478", "type": "paraphrase", "query": "old classified ad selling a small desktop computer storage drive with cache and jumper modes", "expected": "misc.forsale/76124.txt", "overlap": 0.182}
-{"qid": "para-docs-0479", "type": "paraphrase", "query": "late May holiday weekend baseball travel question about home games and scarce ballpark tickets", "expected": "rec.sport.baseball/104971.txt", "overlap": 0.273}
+{"qid": "para-docs-0478", "type": "paraphrase", "query": "roughly quarter-gigabyte used desktop storage device offered for three hundred with onboard memory", "expected": "misc.forsale/76124.txt", "overlap": 0.0}
+{"qid": "para-docs-0479", "type": "paraphrase", "query": "two nearby major league clubs playing at their own fields over late May holiday", "expected": "rec.sport.baseball/104971.txt", "overlap": 0.111}
 {"qid": "para-docs-0480", "type": "paraphrase", "query": "debate about right and wrong as group behavior, with objections about breeding limits", "expected": "alt.atheism/53141.txt", "overlap": 0.25}
 {"qid": "para-docs-0481", "type": "paraphrase", "query": "inherited inability to handle a sweetener component dark pee weak televangelist scare evidence", "expected": "sci.med/58894.txt", "overlap": 0.091}
 {"qid": "para-docs-0482", "type": "paraphrase", "query": "porous light metal frame prevents packed engine charge from splitting during cannon launch", "expected": "sci.space/60839.txt", "overlap": 0.0}
