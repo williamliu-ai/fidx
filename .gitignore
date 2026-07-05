@@ -19,6 +19,7 @@ build/
 # therefore tracked as source.
 bench/data/*
 !bench/data/queries-*-paraphrase.jsonl
+!bench/data/queries-*-human.jsonl
 bench/results/
 
 # Editors / OS

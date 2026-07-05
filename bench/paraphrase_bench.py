@@ -59,6 +59,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import judge_purity as J
 from run_bench import DATA, RESULTS
+
+# judge_purity's replay helpers append to J.LISTS — point that at OUR lists
+# file so paraphrase replays never contaminate the real purity artifacts.
+# (Set before any replay call; verify_nomatch.py does the same.)
 from gen_queries import STOPWORDS, TOKEN_RE
 
 CORPORA_DEFAULT = ["docs-small", "docs", "chat", "code"]
@@ -66,6 +70,7 @@ FIDX_COMBO = ("e5-768", "sqlite-vec")   # same combo the published tables use
 FIDX_MODES = ["hybrid", "lexical", "vector"]
 VALIDATION = RESULTS / "paraphrase-validation.jsonl"
 LISTS = RESULTS / "paraphrase-lists.jsonl"
+J.LISTS = LISTS
 REPORT = RESULTS / "paraphrase-report.md"
 _LOCK = threading.Lock()
 
@@ -76,6 +81,136 @@ VAL_SCHEMA = {"type": "object", "additionalProperties": False,
               "properties": {"retrievable": {"type": "boolean"},
                              "lexical_leak": {"type": "boolean"},
                              "reason": {"type": "string"}}}
+
+# Human-realistic style (grounded in bench research: Jansen/Excite 2.35-term
+# median; Furnas vocabulary problem; 10-15% query misspelling rate; TREC-ToT
+# partial/false-memory behavior; Sadowski code-search mixes). Sub-style mix
+# per the research report's recommended distribution.
+HUMAN_SUBSTYLES_PROSE = (["short"] * 3 + ["vague"] * 3 + ["synonym"] +
+                         ["noisy"] + ["tot"] + ["question"])
+HUMAN_SUBSTYLES_CODE = (["identifier"] * 7 + ["intent"] * 5 + ["mixed"] * 4 +
+                        ["errorpath"] * 2 + ["noisy"] * 2)
+
+HUMAN_RULES = {
+    "short": ("1-3 words. A cue fragment, not a sentence — but from MEMORY, not "
+              "the document's own topic label: at most ONE word may be a "
+              "distinctive document term; prefer the person's own wording."),
+    "vague": ("4-7 words. A partial, underspecified description from fuzzy "
+              "memory. Vary the opener (old thread about, file on, thing "
+              "where, message about, where was) — do NOT default to 'that "
+              "note about'. At most one rare/proper/number token from the "
+              "document."),
+    "synonym": ("2-6 words. STRICT: no content word of the query may appear "
+                "anywhere in the document — use the person's own synonyms/"
+                "related words for what it's about."),
+    "noisy": ("2-6 words. PROCEDURE: first compose the query, then APPLY the "
+              "required artifact to exactly one word before you output — the "
+              "final query text must literally contain the damage "
+              "(typo: drop/swap a letter, e.g. 'retrival', 'grpahics'; "
+              "abbreviation: shorten a word, e.g. 'embd', 'msgs'; casing: "
+              "lowercase a proper name; punctuation: lose separators, e.g. "
+              "'doubledisk'; wrong_cue: state one detail wrong). A clean, "
+              "correctly-spelled query is INVALID for this style."),
+    "tot": ("5-12 words. Tip-of-the-tongue: MUST include a hedge ('maybe', "
+            "'I think', 'that one where...') AND one approximate/incomplete/"
+            "possibly-wrong cue. At most one rare/proper token from the "
+            "document; no exact title-style anchors."),
+    "question": ("A short natural question (5-10 words). Ask about the NEED, "
+                 "not the document's title words — at most one distinctive "
+                 "document term."),
+    "identifier": "1-3 tokens. A partially remembered identifier/API/config name fragment (may be incomplete or slightly off).",
+    "intent": "3-8 words of natural language about what the code DOES ('where do we validate query json'). No identifiers copied.",
+    "mixed": "2-5 words mixing an identifier fragment with plain words ('sqlite insert chunks').",
+    "errorpath": "A fragment of an error message, log line, or path-ish cue they half remember (may be slightly wrong).",
+}
+
+# 'casing' removed: queries are lowercase-normal anyway, so casing damage is
+# invisible to the validator (and to engines). Selection hashes the qid —
+# an idx%len rotation locks onto one type when the substyle-table period is
+# a multiple of the noise-table period.
+NOISE_TYPES = ["typo", "abbreviation", "punctuation", "wrong_cue"]
+
+GEN_PROMPT_HUMAN = """\
+You are simulating a busy person trying to re-find a document they saw a while
+ago in their LOCAL files. They remember only a few clues — not the content.
+
+Write the ONE search query they would type FIRST into a local search box.
+Real first queries are short, lowercase-ish, keyword-style, and often vague.
+
+Required sub-style for THIS query: {substyle} — {rule}
+{noise_req}
+
+Hard rules:
+- Do not summarize the document. Pick 1-3 remembered clues at most.
+- Do not copy long unique phrases. (Identifier fragments are allowed ONLY for
+  the identifier/mixed/errorpath code styles.)
+- Vague is fine. Matching several documents is fine — that is realistic.
+- No punctuation except what a rushed person would type.
+
+Output JSON only:
+{{"query": "...", "substyle": "{substyle}",
+  "noise_type": "none|typo|abbreviation|casing|punctuation|wrong_cue",
+  "expected_ambiguity": "low|medium|high"}}
+
+DOCUMENT ({relpath}):
+{body}
+"""
+
+HUMAN_GEN_SCHEMA = {"type": "object", "additionalProperties": False,
+                    "required": ["query", "substyle", "noise_type",
+                                 "expected_ambiguity"],
+                    "properties": {"query": {"type": "string"},
+                                   "substyle": {"type": "string"},
+                                   "noise_type": {"type": "string"},
+                                   "expected_ambiguity": {"type": "string"}}}
+
+VAL_PROMPT_HUMAN = """\
+Review one query for a HUMAN-REALISTIC local-search benchmark. The query was
+written to simulate how a busy person re-finds this document from partial
+memory. Realistic queries are short, vague, sometimes noisy — do NOT reject
+for vagueness or ambiguity; label it instead.
+
+Reject (plausible_human=false) ONLY if: it reads like an LLM summary rather
+than a typed query; or it copies a long unique phrase from the document
+(copied_unique_anchor=true); or it has no plausible connection to the
+document at all (findable_top10="impossible").
+
+Also check STYLE FIDELITY for the declared sub-style (substyle_ok=false is a
+rejection): synonym queries must share NO content word with the document;
+vague/tot/question may anchor on at most ONE rare/proper document token; tot
+must contain a hedge AND an approximate cue (tot_has_uncertainty); noisy must
+actually contain its noise artifact (noise_present).
+
+Return JSON only:
+{{"plausible_human": true/false, "copied_unique_anchor": true/false,
+  "substyle_ok": true/false, "noise_present": true/false,
+  "tot_has_uncertainty": true/false,
+  "lexical_overlap_bucket": "low|medium|high",
+  "findable_top10": "likely|maybe|unlikely|impossible",
+  "ambiguity": "low|medium|high", "reason": "one line"}}
+
+QUERY: {query}
+(sub-style: {substyle})
+
+DOCUMENT ({relpath}):
+{body}
+"""
+
+VAL_SCHEMA_HUMAN = {"type": "object", "additionalProperties": False,
+                    "required": ["plausible_human", "copied_unique_anchor",
+                                 "substyle_ok", "noise_present",
+                                 "tot_has_uncertainty", "lexical_overlap_bucket",
+                                 "findable_top10", "ambiguity", "reason"],
+                    "properties": {"plausible_human": {"type": "boolean"},
+                                   "copied_unique_anchor": {"type": "boolean"},
+                                   "substyle_ok": {"type": "boolean"},
+                                   "noise_present": {"type": "boolean"},
+                                   "tot_has_uncertainty": {"type": "boolean"},
+                                   "lexical_overlap_bucket": {"type": "string"},
+                                   "findable_top10": {"type": "string"},
+                                   "ambiguity": {"type": "string"},
+                                   "reason": {"type": "string"}}}
+
 
 GEN_PROMPT = """\
 You write ONE search query for a semantic-retrieval benchmark.
@@ -154,8 +289,8 @@ def overlap_fraction(query: str, body: str) -> float:
     return sum(1 for w in qw if w in dw) / len(qw)
 
 
-def para_path(corpus: str) -> Path:
-    return DATA / f"queries-{corpus}-paraphrase.jsonl"
+def para_path(corpus: str, style: str = "paraphrase") -> Path:
+    return DATA / f"queries-{corpus}-{style}.jsonl"
 
 
 def load_source_queries(corpus: str) -> list[dict]:
@@ -165,10 +300,46 @@ def load_source_queries(corpus: str) -> list[dict]:
     return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
 
 
-def gen_one(corpus: str, src: dict, attempt: int) -> dict | None:
+def _substyle_for(corpus: str, idx: int) -> str:
+    table = HUMAN_SUBSTYLES_CODE if corpus.startswith("code") \
+        else HUMAN_SUBSTYLES_PROSE
+    return table[idx % len(table)]
+
+
+def gen_one(corpus: str, src: dict, attempt: int, style: str = "paraphrase",
+            idx: int = 0) -> dict | None:
     body = J.doc_text(corpus, src["expected"]) or ""
     if not body:
         return None
+    if style == "human":
+        sub = _substyle_for(corpus, idx)
+        extra = "" if attempt == 1 else (
+            "\nPREVIOUS ATTEMPT WAS REJECTED for style-fidelity. Re-read the "
+            "sub-style rule and satisfy it LITERALLY (noisy: the output text "
+            "must contain the actual damage; vague/question: at most ONE "
+            "distinctive document token; synonym: zero document content "
+            "words). Shorter and rougher beats polished.\n")
+        noise_req, ntype = "", "none"
+        if sub == "noisy":
+            import hashlib
+            h = int(hashlib.sha1(src["qid"].encode()).hexdigest(), 16)
+            ntype = NOISE_TYPES[h % len(NOISE_TYPES)]
+            noise_req = f"REQUIRED noise type: {ntype}"
+        resp = codex_json(GEN_PROMPT_HUMAN.format(
+            substyle=sub, rule=HUMAN_RULES[sub], relpath=src["expected"],
+            body=body[:3500], noise_req=noise_req) + extra, HUMAN_GEN_SCHEMA)
+        if not resp or not resp.get("query", "").strip():
+            return None
+        q = " ".join(resp["query"].split())
+        # for the noisy substyle the noise type is ASSIGNED, not the model's
+        # self-report (round-2 review: stored rows must reflect the quota)
+        ntype_final = (ntype if sub == "noisy"
+                       else resp.get("noise_type", "none"))
+        return {"qid": f"hum-{src['qid']}", "type": "human", "substyle": sub,
+                "query": q, "expected": src["expected"],
+                "noise_type": ntype_final,
+                "expected_ambiguity": resp.get("expected_ambiguity", "medium"),
+                "overlap": round(overlap_fraction(q, body), 3)}
     extra = ""
     if attempt > 1:
         extra = ("\nPREVIOUS ATTEMPT WAS REJECTED (too generic or it copied "
@@ -190,28 +361,50 @@ def cmd_gen(args) -> None:
         for r in J.jsonl_read(VALIDATION):
             if not r["valid"]:
                 invalid.add((r["corpus"], r["qid"]))
+    prefix = "hum-" if args.style == "human" else "para-"
     for corpus in args.corpora:
         src = load_source_queries(corpus)
-        out = para_path(corpus)
+        if args.style == "human":
+            # seeded shuffle so pilots are not the file's first-N (topic/order
+            # confound); substyle is assigned from the shuffled position.
+            import random as _rnd
+            _rnd.Random(f"human-{corpus}-7").shuffle(src)
+        if args.limit:
+            src = src[:args.limit]
+        out = para_path(corpus, args.style)
         have = {r["qid"]: r for r in J.jsonl_read(out)} if out.exists() else {}
         if args.retry_invalid:
-            todo = [s for s in src if (corpus, f"para-{s['qid']}") in invalid]
+            todo = [s for s in src if (corpus, f"{prefix}{s['qid']}") in invalid]
             attempt = 2
         else:
-            todo = [s for s in src if f"para-{s['qid']}" not in have]
+            todo = [s for s in src if f"{prefix}{s['qid']}" not in have]
             attempt = 1
         print(f"[{corpus}] generating {len(todo)}/{len(src)} paraphrase queries",
               file=sys.stderr)
         if not todo:
             continue
         done_n = 0
+        idx_of = {q["qid"]: i for i, q in enumerate(src)}
+        wip = out.with_suffix(".wip.jsonl")
+        # recover rows from a previous interrupted run of this corpus
+        if wip.exists():
+            for r in J.jsonl_read(wip):
+                have.setdefault(r["qid"], r)
         def work(s: dict) -> None:
             nonlocal done_n
-            row = gen_one(corpus, s, attempt)
+            # wip-recovery skip applies only to FIRST-attempt runs; in retry
+            # mode the qid is present by definition and must be regenerated.
+            if attempt == 1 and f"{prefix}{s['qid']}" in have:
+                with _LOCK:
+                    done_n += 1
+                return
+            row = gen_one(corpus, s, attempt, style=args.style,
+                          idx=idx_of.get(s["qid"], 0))
             with _LOCK:
                 done_n += 1
                 if row:
                     have[row["qid"]] = row
+                    J.jsonl_append(wip, row)   # crash-safe incremental record
                 if done_n % 25 == 0:
                     print(f"  [{corpus}] {done_n}/{len(todo)}", file=sys.stderr)
         with ThreadPoolExecutor(max_workers=args.parallel) as ex:
@@ -219,10 +412,18 @@ def cmd_gen(args) -> None:
         # rewrite the whole file in source order (stable, dedup, replaces retried)
         with out.open("w") as f:
             for s in src:
-                row = have.get(f"para-{s['qid']}")
+                row = have.get(f"{prefix}{s['qid']}")
                 if row:
                     f.write(json.dumps(row) + "\n")
+        wip.unlink(missing_ok=True)
         print(f"[{corpus}] {len(have)}/{len(src)} queries -> {out}", file=sys.stderr)
+        if args.retry_invalid and todo and VALIDATION.exists():
+            # retried queries keep their qid — drop their old verdicts so the
+            # next `validate` re-reviews them instead of skipping.
+            retried = {f"{prefix}{s['qid']}" for s in todo}
+            keep = [r for r in J.jsonl_read(VALIDATION)
+                    if not (r["corpus"] == corpus and r["qid"] in retried)]
+            VALIDATION.write_text("".join(json.dumps(r) + "\n" for r in keep))
 
 
 def cmd_validate(args) -> None:
@@ -232,24 +433,48 @@ def cmd_validate(args) -> None:
         VALIDATION.unlink()
         done = set()
     for corpus in args.corpora:
-        rows = J.jsonl_read(para_path(corpus))
+        rows = J.jsonl_read(para_path(corpus, args.style))
         todo = [r for r in rows if (corpus, r["qid"]) not in done]
         print(f"[{corpus}] validating {len(todo)}/{len(rows)}", file=sys.stderr)
         n = 0
         def work(r: dict) -> None:
             nonlocal n
             body = (J.doc_text(corpus, r["expected"]) or "")[:3500]
-            resp = codex_json(VAL_PROMPT.format(query=r["query"],
-                                                relpath=r["expected"], body=body),
-                              VAL_SCHEMA)
-            valid = bool(resp and resp["retrievable"] and not resp["lexical_leak"])
+            if args.style == "human":
+                resp = codex_json(VAL_PROMPT_HUMAN.format(
+                    query=r["query"], substyle=r.get("substyle", "?"),
+                    relpath=r["expected"], body=body), VAL_SCHEMA_HUMAN)
+                sub = r.get("substyle", "")
+                style_ok = bool(resp and resp.get("substyle_ok"))
+                if resp and sub == "noisy" and not resp.get("noise_present"):
+                    style_ok = False
+                if resp and sub == "tot" and not resp.get("tot_has_uncertainty"):
+                    style_ok = False
+                valid = bool(resp and resp["plausible_human"]
+                             and not resp["copied_unique_anchor"]
+                             and style_ok
+                             and resp["findable_top10"] != "impossible")
+                rec = {"corpus": corpus, "qid": r["qid"], "valid": valid,
+                       "style": "human", "substyle": sub,
+                       "substyle_ok": style_ok,
+                       "noise_present": bool(resp and resp.get("noise_present")),
+                       "tot_has_uncertainty": bool(resp and resp.get("tot_has_uncertainty")),
+                       "lexical_overlap_bucket": (resp or {}).get("lexical_overlap_bucket", "?"),
+                       "ambiguity": (resp or {}).get("ambiguity", "?"),
+                       "findable_top10": (resp or {}).get("findable_top10", "?"),
+                       "reason": (resp or {}).get("reason", "no verdict")}
+            else:
+                resp = codex_json(VAL_PROMPT.format(query=r["query"],
+                                                    relpath=r["expected"], body=body),
+                                  VAL_SCHEMA)
+                valid = bool(resp and resp["retrievable"] and not resp["lexical_leak"])
+                rec = {"corpus": corpus, "qid": r["qid"], "valid": valid,
+                       "retrievable": bool(resp and resp.get("retrievable")),
+                       "lexical_leak": bool(resp and resp.get("lexical_leak")),
+                       "reason": (resp or {}).get("reason", "no verdict")}
             with _LOCK:
                 n += 1
-                J.jsonl_append(VALIDATION, {
-                    "corpus": corpus, "qid": r["qid"], "valid": valid,
-                    "retrievable": bool(resp and resp.get("retrievable")),
-                    "lexical_leak": bool(resp and resp.get("lexical_leak")),
-                    "reason": (resp or {}).get("reason", "no verdict")})
+                J.jsonl_append(VALIDATION, rec)
                 if n % 25 == 0:
                     print(f"  [{corpus}] {n}/{len(todo)}", file=sys.stderr)
         with ThreadPoolExecutor(max_workers=args.parallel) as ex:
@@ -262,11 +487,14 @@ def cmd_validate(args) -> None:
         print(f"[{corpus}] valid {ok} / invalid {bad}")
 
 
-def final_queries(corpus: str) -> list[dict]:
-    """Validated-only paraphrase queries for a corpus."""
+def final_queries(corpus: str, style: str = "paraphrase") -> list[dict]:
+    """Validated-only queries for a corpus + style."""
     verdict = {r["qid"]: r["valid"] for r in J.jsonl_read(VALIDATION)
                if r["corpus"] == corpus}
-    return [r for r in J.jsonl_read(para_path(corpus)) if verdict.get(r["qid"])]
+    path = para_path(corpus, style)
+    if not path.exists():
+        return []
+    return [r for r in J.jsonl_read(path) if verdict.get(r["qid"])]
 
 
 def replay_fidx_modes(corpus: str, queries: list[dict], done: set) -> None:
@@ -303,10 +531,12 @@ def replay_fidx_modes(corpus: str, queries: list[dict], done: set) -> None:
             paths = [J.real_path(r["path"], hmap, corpus) or r["path"]
                      for r in resp["results"]]
             srcs = [r.get("sources") for r in resp["results"]]
+            scores = [r.get("score") for r in resp["results"]]
             J.jsonl_append(LISTS, {"corpus": corpus, "engine": "fidx",
                                    "mode": mode, "qid": q["qid"],
                                    "query": q["query"], "expected": q["expected"],
-                                   "paths": paths, "sources": srcs})
+                                   "paths": paths, "sources": srcs,
+                                   "scores": scores})
             if i % 100 == 0:
                 print(f"  fidx {corpus}: {i}/{len(todo)}", file=sys.stderr)
     finally:
@@ -322,7 +552,7 @@ def cmd_replay(args) -> None:
     done = {(r["corpus"], r["engine"], r["mode"], r["qid"])
             for r in J.jsonl_read(LISTS)} if LISTS.exists() else set()
     for corpus in args.corpora:
-        qs = final_queries(corpus)
+        qs = final_queries(corpus, args.style)
         if not qs:
             print(f"SKIP {corpus}: no validated queries (run gen+validate)",
                   file=sys.stderr)
@@ -355,7 +585,7 @@ def cmd_report(args) -> None:
         by[(r["corpus"], r["engine"], r["mode"])].append(r)
     out = ["# Paraphrase-query benchmark (semantic recall)", ""]
     for corpus in args.corpora:
-        qs = final_queries(corpus)
+        qs = final_queries(corpus, args.style)
         if not qs:
             continue
         ov = [q["overlap"] for q in qs]
@@ -394,9 +624,285 @@ def cmd_report(args) -> None:
     print(report)
 
 
+JUDGMENTS = RESULTS / "paraphrase-judgments.jsonl"
+
+JUDGE_SYSTEM = """\
+You judge search results for a retrieval benchmark in ONE pass (this single
+call is the only LLM evaluation for this query — label carefully).
+
+The user typed the QUERY trying to re-find a specific document. Label each
+CANDIDATE:
+- relevant: genuinely answers/matches the query's information need (the
+  document the user was looking for, or one that equally satisfies it).
+- related: same broad topic or vocabulary, but not what was asked for.
+- noise: unrelated to the query's information need.
+
+Judge each candidate independently against the query text alone."""
+
+
+def judge_one_query(corpus: str, query: str, paths: list[str]) -> dict[str, str]:
+    if not paths:
+        return {}
+    cands = "\n\n".join(
+        f"CANDIDATE {i}: {p}\n{(J.doc_text(corpus, p) or '')[:1000]}"
+        for i, p in enumerate(paths, 1))
+    prompt = (f"{JUDGE_SYSTEM}\n\nQUERY: {query}\n\n{cands}\n\n"
+              'Respond with ONLY JSON {"labels": [{"path": "...", '
+              '"label": "relevant|related|noise"}]} — one entry per candidate.')
+    resp = codex_json(prompt, J.JUDGE_SCHEMA, timeout=600)
+    if not resp:
+        return {}
+    return {l["path"]: l["label"] for l in resp.get("labels", [])
+            if l.get("label") in J.LABELS}
+
+
+def cmd_judge(args) -> None:
+    """One codex call per (corpus, qid): labels the UNION of all modes' top-10
+    PLUS the expected target (so target-relevance is always judged) — recall
+    is mechanical from the lists, purity comes from these labels; both
+    metrics per mode derive from this single call. Rejudges when the
+    candidate union grows beyond what was judged."""
+    judged_paths = {}
+    if JUDGMENTS.exists():
+        for r in J.jsonl_read(JUDGMENTS):
+            judged_paths[(r["corpus"], r["qid"])] = set(r.get("labels", {}))
+    rows = [r for r in J.jsonl_read(LISTS) if r["corpus"] in args.corpora]
+    if args.style_qids:
+        rows = [r for r in rows if r["qid"].startswith(args.style_qids)]
+    groups: dict[tuple, dict] = {}
+    for r in rows:
+        g = groups.setdefault((r["corpus"], r["qid"]),
+                              {"corpus": r["corpus"], "qid": r["qid"],
+                               "query": r["query"], "paths": [],
+                               "expected": r["expected"]})
+        for p in r["paths"]:
+            if p not in g["paths"]:
+                g["paths"].append(p)
+    for g in groups.values():
+        # always judge the target itself, retrieved or not
+        exp = g["expected"]
+        if not any(J.is_expected(p, exp) for p in g["paths"]):
+            g["paths"].append(exp)
+    todo = [g for k, g in groups.items()
+            if not set(g["paths"]) <= judged_paths.get(k, set())]
+    print(f"judging {len(todo)}/{len(groups)} query groups", file=sys.stderr)
+    n = 0
+    def work(g):
+        nonlocal n
+        labels = judge_one_query(g["corpus"], g["query"], g["paths"])
+        with _LOCK:
+            n += 1
+            J.jsonl_append(JUDGMENTS, {"corpus": g["corpus"], "qid": g["qid"],
+                                       "labels": labels})
+            if n % 20 == 0:
+                print(f"  judged {n}/{len(todo)}", file=sys.stderr)
+    with ThreadPoolExecutor(max_workers=args.parallel) as ex:
+        list(ex.map(work, todo))
+
+
+def _apply_trunc(paths, scores, spec, mode):
+    """Offline truncation over recorded (path, score) lists via fidx.truncate."""
+    from types import SimpleNamespace
+    from fidx import truncate as T
+    if not scores or any(x is None for x in scores):
+        return paths
+    res = [SimpleNamespace(score=sc, path=pa) for pa, sc in zip(paths, scores)]
+    kept = T.truncate(res, spec, mode)
+    return [r.path for r in kept]
+
+
+def cmd_analyze(args) -> None:
+    """Recall + purity per engine/mode x truncation variant, from recorded
+    lists + single-call judgments. Honesty rules (round-1 review): known-item
+    recall counts ONLY queries whose target the judge labeled relevant to the
+    query (others are the 'query-only' bucket); purity is decomposed —
+    clean@10 (no judged noise; empty vacuously clean), nonempty_clean (same,
+    non-empty lists only), strict_clean (unjudged fails); coverage shown."""
+    label = {}
+    for r in J.jsonl_read(JUDGMENTS):
+        for pa, la in r.get("labels", {}).items():
+            label[(r["corpus"], r["qid"], pa)] = la
+    rows = [r for r in J.jsonl_read(LISTS) if r["corpus"] in args.corpora]
+    if args.style_qids:
+        rows = [r for r in rows if r["qid"].startswith(args.style_qids)]
+    judged_qids = {(r["corpus"], r["qid"]) for r in J.jsonl_read(JUDGMENTS)} \
+        if JUDGMENTS.exists() else set()
+    rows = [r for r in rows if (r["corpus"], r["qid"]) in judged_qids]
+
+    def target_relevant(corpus, qid, expected):
+        for (c, q, pa), la in label.items():
+            if c == corpus and q == qid and J.is_expected(pa, expected):
+                return la == "relevant"
+        return False
+
+    def variant_paths(r, spec, mode):
+        paths, scores = r["paths"], r.get("scores")
+        if spec == "off":
+            return paths
+        if spec in ("knee", "mad"):
+            return _apply_trunc(paths, scores, spec, mode)
+        fl = CAL_FLOORS.get(r["corpus"])
+        if fl is None or not scores or any(x is None for x in scores):
+            return None
+        if spec == "hybrid-floor-only":
+            return [p for p, sc in zip(paths, scores) if sc >= fl]
+        if spec == "calibrated":  # product behavior: floor, then knee
+            kept = [(p, sc) for p, sc in zip(paths, scores) if sc >= fl]
+            if not kept:
+                return []
+            return _apply_trunc([p for p, _ in kept], [sc for _, sc in kept],
+                                "knee", mode)
+        if spec == "calibrated-soft5":  # pre-registered: >=0.98*floor, cap 5
+            kept = [p for p, sc in zip(paths, scores) if sc >= 0.98 * fl]
+            return kept[:5]
+        return paths
+
+    import collections as C
+    grouped = C.defaultdict(list)
+    for r in rows:
+        grouped[(r["corpus"], r["engine"], r["mode"])].append(r)
+    out = ["| corpus | engine/mode | trunc | n(ki) | q-only | R@10ki | empty% | avg_len | rel% | related% | noise% | clean | ne_clean | strict_clean | cov% |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for (corpus, engine, mode), rs in sorted(grouped.items()):
+        variants = (["off", "knee", "mad", "hybrid-floor-only", "calibrated",
+                     "calibrated-soft5"] if (engine == "fidx" and mode == "hybrid")
+                    else ["off", "knee", "mad"] if engine == "fidx"
+                    else ["off"])
+        for spec in variants:
+            ki_n = ki_hits = qonly = 0
+            n = empty = clean = ne_clean = strict_clean = 0
+            cnt = C.Counter(); judged = total_ret = 0
+            lens = 0
+            for r in rs:
+                paths = variant_paths(r, spec, mode)
+                if paths is None:
+                    continue
+                n += 1
+                lens += len(paths)
+                tr = target_relevant(corpus, r["qid"], r["expected"])
+                if tr:
+                    ki_n += 1
+                    if any(J.is_expected(pa, r["expected"]) for pa in paths):
+                        ki_hits += 1
+                else:
+                    qonly += 1
+                if not paths:
+                    empty += 1
+                labs = [label.get((corpus, r["qid"], pa), "unjudged")
+                        for pa in paths]
+                total_ret += len(labs)
+                judged += sum(1 for x in labs if x != "unjudged")
+                for x in labs:
+                    cnt[x] += 1
+                noi = sum(1 for x in labs if x == "noise")
+                unj = sum(1 for x in labs if x == "unjudged")
+                if noi == 0:
+                    clean += 1
+                    if paths:
+                        ne_clean += 1
+                    if unj == 0:
+                        strict_clean += 1
+            if not n:
+                continue
+            def pc(k):
+                return f"{cnt[k]/total_ret:.2f}" if total_ret else "-"
+            ne_denom = n - empty
+            out.append(
+                f"| {corpus} | {engine} {mode} | {spec} | {ki_n} | {qonly} | "
+                f"{(ki_hits/ki_n):.3f} | {empty/n:.0%} | {lens/n:.1f} | "
+                f"{pc('relevant')} | {pc('related')} | {pc('noise')} | "
+                f"{clean/n:.2f} | {(ne_clean/ne_denom):.2f} | "
+                f"{strict_clean/n:.2f} | "
+                f"{(judged/total_ret if total_ret else 0):.0%} |"
+                if ki_n and ne_denom else
+                f"| {corpus} | {engine} {mode} | {spec} | {ki_n} | {qonly} | - | "
+                f"{empty/n:.0%} | {lens/n:.1f} | {pc('relevant')} | {pc('related')} | "
+                f"{pc('noise')} | {clean/n:.2f} | - | {strict_clean/n:.2f} | "
+                f"{(judged/total_ret if total_ret else 0):.0%} |")
+    # --- stratified view (round-2 review): aggregate hides substyle failure
+    # modes (e.g. synonym queries scoring 0.0). Hybrid off + knee per stratum.
+    meta = {}
+    for q in J.jsonl_read(DATA / "queries-docs-small-human.jsonl") if \
+            (DATA / "queries-docs-small-human.jsonl").exists() else []:
+        meta[q["qid"]] = q
+    vmeta = {}
+    for r in J.jsonl_read(VALIDATION):
+        if r.get("style") == "human":
+            vmeta[r["qid"]] = r
+    out.append("")
+    out.append("**Stratified (fidx hybrid): R@10ki by substyle / ambiguity / overlap bucket**")
+    out.append("")
+    out.append("| stratum | n(ki) | off R@10 | knee R@10 | knee clean |")
+    out.append("|---|---|---|---|---|")
+    hyb = grouped.get((args.corpora[0], "fidx", "hybrid"), [])
+    def strat_row(name, pred):
+        for spec in ["off", "knee"]:
+            pass
+        ki = [r for r in hyb if pred(r) and
+              target_relevant(r["corpus"], r["qid"], r["expected"])]
+        if not ki:
+            return None
+        vals = {}
+        for spec in ["off", "knee"]:
+            hits = clean = 0
+            for r in ki:
+                paths = variant_paths(r, spec, "hybrid") or []
+                if any(J.is_expected(pa, r["expected"]) for pa in paths):
+                    hits += 1
+                labs = [label.get((r["corpus"], r["qid"], pa), "unjudged")
+                        for pa in paths]
+                if not any(x == "noise" for x in labs):
+                    clean += 1
+            vals[spec] = (hits / len(ki), clean / len(ki))
+        return (f"| {name} | {len(ki)} | {vals['off'][0]:.2f} | "
+                f"{vals['knee'][0]:.2f} | {vals['knee'][1]:.2f} |")
+    strata = []
+    subs = sorted({m.get("substyle") for m in meta.values() if m.get("substyle")})
+    for sub in subs:
+        strata.append((f"substyle:{sub}",
+                       lambda r, sub=sub: meta.get(r["qid"], {}).get("substyle") == sub))
+    for amb in ["low", "medium", "high"]:
+        strata.append((f"ambiguity:{amb}",
+                       lambda r, amb=amb: vmeta.get(r["qid"], {}).get("ambiguity") == amb))
+    for b in ["low", "medium", "high"]:
+        strata.append((f"overlap:{b}",
+                       lambda r, b=b: vmeta.get(r["qid"], {}).get("lexical_overlap_bucket") == b))
+    for name, pred in strata:
+        row = strat_row(name, pred)
+        if row:
+            out.append(row)
+    print("\n".join(out))
+    (RESULTS / "paraphrase-analysis.md").write_text("\n".join(out) + "\n")
+
+
+def _cal_floor(corpus: str) -> float | None:
+    """Read the calibrated truncation floor from the kept index's meta."""
+    import sqlite3
+    db = RESULTS / f"fidx-{FIDX_COMBO[0]}-{FIDX_COMBO[1]}-{corpus}.db"
+    if not db.exists():
+        return None
+    try:
+        con = sqlite3.connect(db)
+        row = con.execute("SELECT value FROM meta WHERE key='truncate_floor'").fetchone()
+        con.close()
+        return float(row[0]) if row else None
+    except Exception:
+        return None
+
+
+class _Floors(dict):
+    def get(self, corpus, default=None):
+        if corpus not in self:
+            self[corpus] = _cal_floor(corpus)
+        return self[corpus] if self[corpus] is not None else default
+
+
+CAL_FLOORS = _Floors()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("cmd", choices=["gen", "validate", "replay", "report", "all"])
+    p.add_argument("cmd", choices=["gen", "validate", "replay", "report", "judge", "analyze", "all"])
     p.add_argument("--corpora", default=",".join(CORPORA_DEFAULT))
     p.add_argument("--parallel", type=int, default=8)
     p.add_argument("--retry-invalid", action="store_true",
@@ -405,6 +911,13 @@ def main() -> None:
                    help="validate: wipe verdicts and re-review everything")
     p.add_argument("--qmd-query-limit", type=int, default=0,
                    help="also run qmd `query` (LLM) on the first N queries")
+    p.add_argument("--style-qids", default="",
+                   help="judge/analyze: only qids with this prefix (e.g. hum-)")
+    p.add_argument("--style", default="paraphrase",
+                   choices=["paraphrase", "human"],
+                   help="query style for gen/validate/replay")
+    p.add_argument("--limit", type=int, default=0,
+                   help="gen: only the first N source queries (pilot runs)")
     args = p.parse_args()
     args.corpora = [c.strip() for c in args.corpora.split(",") if c.strip()]
     if args.cmd in ("gen", "all"):
@@ -415,6 +928,10 @@ def main() -> None:
         cmd_replay(args)
     if args.cmd in ("report", "all"):
         cmd_report(args)
+    if args.cmd == "judge":
+        cmd_judge(args)
+    if args.cmd == "analyze":
+        cmd_analyze(args)
 
 
 if __name__ == "__main__":
