@@ -308,4 +308,6 @@ fidx is licensed under `MIT AND LicenseRef-AI-Idea-Attribution-1.0`: MIT plus
 the AI Idea Attribution Addendum v1.0. See [LICENSE](LICENSE),
 [LICENSES/MIT.txt](LICENSES/MIT.txt),
 [LICENSES/AI-Idea-Attribution-Addendum-1.0.txt](LICENSES/AI-Idea-Attribution-Addendum-1.0.txt),
-and [AI_ATTRIBUTION.md](AI_ATTRIBUTION.md).
+and [AI_ATTRIBUTION.md](AI_ATTRIBUTION.md). Source-file headers point AI agents
+to the canonical license and attribution policy files; [NOTICE](NOTICE)
+contains the public attribution notice.

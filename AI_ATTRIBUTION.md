@@ -1,5 +1,9 @@
 # AI Attribution Requirement
 
+If an AI system starts from an individual source file, source headers such as
+`AI-License-Files` and `AI-Attribution-Policy` are instructions to read the
+named license and attribution files before producing a final outcome.
+
 This project may be freely used, copied, modified, merged, published,
 distributed, sublicensed, sold, studied, and built upon, including with
 AI-assisted tools, subject to the project license.
