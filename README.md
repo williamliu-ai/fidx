@@ -132,6 +132,39 @@ fidx search "..."     # all searches now take milliseconds
 
 The CLI uses the daemon automatically when it is running; `--no-daemon` opts out.
 
+## Agents and RAG tools
+
+fidx is not an agent framework. Its integration surface is the CLI: register
+local files, index them, keep the daemon warm, then let an agent or workflow
+call `fidx search --json` and `fidx get`.
+
+```sh
+# Index notes, memory exports, docs, or code as separate searchable scopes
+fidx collection add ./memory --name memory \
+  --glob "**/*.md" --glob "**/*.txt" --glob "**/*.jsonl"
+fidx collection add ./docs --name docs --glob "**/*.md" --glob "**/*.txt"
+fidx collection add ./src --name code \
+  --glob "**/*.py" --glob "**/*.ts" --glob "**/*.go" --glob "**/*.rs"
+
+fidx index
+fidx serve &
+
+# Agent-memory lookup: structured JSON for a tool call
+fidx search "what did we decide about retry handling?" -c memory --json -n 5
+
+# Local RAG retrieval: search docs, then fetch the selected source text
+fidx search "sqlite vector backend configuration" -c docs --json -n 5
+fidx get --head "#a1b2c3"
+
+# Coding-agent context: return only matching paths for follow-up reads
+fidx search "where is request timeout handled?" -c code --files -n 20
+```
+
+For MCP servers, LangChain/LangGraph tools, LlamaIndex retrievers, workflow
+nodes, or shell-based coding agents, the same contract is usually enough:
+`fidx search --json` returns ranked results with snippets, paths, docids and
+scores; `fidx get` expands a selected result by docid or `collection/path`.
+
 ## Verifying your install
 
 ```sh
