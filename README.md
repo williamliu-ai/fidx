@@ -185,11 +185,14 @@ corpora with known-item queries (CPU-only, warm engines, idle box). Result
 quality has **two axes that trade off**: *recall* (is the right document in
 the top-10) and *purity* — **noise@10** (share of returned results an LLM
 judge rated irrelevant, lower is better) and **clean@10** (share of queries
-whose results contain zero noise, higher is better). The headline:
-**vs QMD's LLM hybrid, fidx wins both purity metrics on every corpus and
-recall on docs and code — recall ties on docs-small and is 0.004 behind on
-chat — at ~300–1000× lower latency on the doc/chat corpora and ~65× on the
-92k-file code corpus.**
+whose results contain zero noise, higher is better). And queries come in
+**two regimes**: *known-item* queries built from the document's own words
+(most lookups: names, identifiers, remembered phrases) and *paraphrase*
+queries that share almost no vocabulary with the target (pure semantic
+recall). The known-item headline: **vs QMD's LLM hybrid, fidx wins both
+purity metrics on every corpus and recall on docs and code — recall ties on
+docs-small and is 0.004 behind on chat — at ~300–1000× lower latency on the
+doc/chat corpora and ~65× on the 92k-file code corpus.**
 
 | Corpus (size) | Engine | R@10 ↑ | noise@10 ↓ | clean@10 ↑ | p50 latency |
 |---|---|---|---|---|---|
@@ -225,8 +228,31 @@ profile (`fidx index --profile e5-768`; the install default is
 - fidx stays sub-second even on its weakest corpus and is ~65× faster than
   QMD's LLM modes there.
 
-Full tables (R@1/R@3, untruncated numbers, per-language code results), the
-SymDex comparison, conditions, and the honest threats-to-validity:
+**The semantic regime (paraphrase queries).** After an independent reviewer
+correctly noted that known-item queries reward lexical overlap, we built an
+LLM-written, separately-LLM-validated paraphrase query set (~0.1 query→doc
+word overlap; checked into `bench/data/`) — same targets, no shared
+vocabulary. Recall@10 there:
+
+| corpus | fidx `--mode vector` | fidx hybrid | QMD `search` (BM25) | QMD `query` (LLM) |
+|---|---|---|---|---|
+| docs-small (2k) | 0.541 | 0.419 | 0.000 | **0.635** |
+| docs (18.8k) | **0.450** | 0.385 | 0.000 | pending |
+| chat (8k) | **0.373** | 0.317 | 0.000 | pending |
+| code (92.3k) | 0.041 | 0.039 | 0.000 | pending |
+
+Honest readings: BM25 gets literally zero without shared terms; fidx's
+vector arm does real semantic work on prose at millisecond latency; QMD's
+LLM expansion buys the best semantic recall where measured — at ~33 s vs
+20 ms per query; fidx's hybrid fusion currently *drags below* its own
+vector mode on this regime (query-adaptive weighting is a roadmap item —
+use `--mode vector` for purely conceptual queries); and semantic search
+over 92k code files with a 768-d text embedder does not work — fidx's code
+strength is lexical.
+
+Full tables (R@1/R@3, untruncated numbers, per-language code results, the
+full paraphrase methodology), the SymDex comparison, conditions, and the
+honest threats-to-validity:
 [docs/BENCHMARKS.md](docs/BENCHMARKS.md); harness usage and methodology:
 [bench/README.md](bench/README.md).
 

@@ -135,6 +135,71 @@ for the corpus-adaptive alternative (derives a score floor from the indexed
 corpus itself — self-retrieval positives + gibberish negatives — instead of
 tuning to any benchmark).
 
+## Paraphrase queries — semantic recall (the hard set)
+
+An independent reviewer of the v0.1.0 benchmark made a correct observation:
+the known-item queries are built from tokens taken from the target document,
+so they reward lexical overlap and under-test semantic paraphrase. This
+section measures the semantic regime directly.
+
+**Query construction.** For every known-item query, an LLM wrote a paraphrase
+query for the same target document — natural wording, 8–20 words, with the
+document's distinctive terms (names, identifiers, rare words) deliberately
+paraphrased away. A **separate** LLM pass then reviewed each query
+(specific enough that the target is the best answer among thousands; no
+copied distinctive terms); failed queries were regenerated once, and
+still-invalid ones dropped. Final sets: docs-small 148, docs 491, chat 498,
+code 485 (98.4% of the known-item counts). Query→document content-word
+overlap averages **0.09–0.12** (the known-item sets are ~1.0 by
+construction) — these are genuinely non-lexical. The sets are checked into
+`bench/data/queries-*-paraphrase.jsonl`; the harness is
+`bench/paraphrase_bench.py`.
+
+**Results** (recall@10; same kept indexes as the main tables; fidx e5-768 /
+sqlite-vec; fidx decomposed into its two arms):
+
+| corpus | fidx hybrid | fidx lexical-only | fidx vector-only | qmd search (BM25) | qmd query (LLM) |
+|---|---|---|---|---|---|
+| docs-small (2k) | 0.419 | 0.149 | 0.541 | 0.000 | **0.635** |
+| docs (18.8k) | 0.385 | 0.141 | **0.450** | 0.000 | pending† |
+| chat (8k) | 0.317 | 0.078 | **0.373** | 0.000 | pending† |
+| code (92.3k) | 0.039 | 0.016 | 0.041 | 0.000 | pending† |
+
+† qmd's LLM mode costs ~33 s/query on CPU; it was run in full on docs-small
+and is pending on the larger corpora (subsampled runs planned).
+
+**What this says, honestly:**
+
+1. **The reviewer was right about the known-item sets.** Every engine's
+   near-perfect known-item recall is substantially lexical. On genuinely
+   paraphrased queries, recall drops for everything.
+2. **BM25 alone gets zero.** qmd `search` returned empty result lists for
+   ~93% of paraphrase queries (verified genuine with known-item controls
+   through the identical replay path) — with no shared terms, conjunctive
+   FTS has nothing to match. fidx's lexical arm barely survives
+   (0.08–0.15) only because its OR-token matching is looser.
+3. **fidx's vector arm does real semantic work on prose** — 0.45–0.54 R@10
+   on the doc corpora and 0.37 on chat, at millisecond latency. Source
+   attribution confirms it: 95–98% of fidx hybrid's paraphrase hits involve
+   the vector arm.
+4. **LLM query expansion earns its latency in this regime.** On docs-small,
+   qmd `query` leads (0.635 vs fidx's best 0.541) — at ~33 s vs 20 ms per
+   query. This is the honest trade both tools embody: fidx gives you most
+   of the semantic recall at reflex latency; an LLM in the query path buys
+   the rest at ~1,500× the cost.
+5. **Known weakness #1 — hybrid fusion drags on semantic queries.** fidx
+   hybrid is WORSE than its own vector-only mode on every corpus here
+   (e.g. docs-small 0.419 vs 0.541): RRF gives fusion credit to lexical
+   matches that are noise in this regime. Query-adaptive arm weighting is
+   now a roadmap item; until then, `--mode vector` is the better setting
+   for purely conceptual queries.
+6. **Known weakness #2 — semantic code search at 92k files does not work
+   with a 768-d text embedder.** All modes collapse on code (≤0.04).
+   fidx's strong known-item code recall (0.90) is overwhelmingly lexical
+   (identifiers) — which is what code search mostly is, but callers wanting
+   "find the file that implements X" semantics should know the limit.
+   Code-tuned embeddings are the research direction.
+
 ## Per-repo code benchmark (10 languages, each indexed alone)
 
 The combined 92.3k index mixes cross-language distractors, so each repo was
@@ -232,9 +297,13 @@ Read before quoting any number:
   benchmark-tuned constant.
 - **Corpus noise floor.** 20 Newsgroups near-duplicates depress R@1 for every
   engine equally; do not read absolute R@1 there as engine quality.
-- **Query-generation bias.** All three query types are machine-generated from
-  the target document; they hit all engines equally but favor lexical
-  matching more than human queries would (see the vague-type note above).
+- **Query-generation bias — now measured, not just disclosed.** The three
+  known-item query types are built from the target document's own tokens, so
+  they reward lexical overlap (an independent reviewer flagged this after
+  v0.1.0). The paraphrase section above quantifies it: on non-lexical
+  queries, recall drops for every engine and the ranking changes. Read the
+  known-item tables as the lexical-leaning regime and the paraphrase table
+  as the semantic regime.
 - **Single machine, single run.** All constants (latency, index time, RSS)
   are from one 32-core CPU box; per-repo index/latency numbers were measured
   under varying background load, with a load-gate refusing the worst cases.
