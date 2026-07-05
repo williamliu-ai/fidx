@@ -174,10 +174,12 @@ and is pending on the larger corpora (subsampled runs planned).
    near-perfect known-item recall is substantially lexical. On genuinely
    paraphrased queries, recall drops for everything.
 2. **BM25 alone gets zero.** qmd `search` returned empty result lists for
-   ~93% of paraphrase queries (verified genuine with known-item controls
-   through the identical replay path) — with no shared terms, conjunctive
-   FTS has nothing to match. fidx's lexical arm barely survives
-   (0.08–0.15) only because its OR-token matching is looser.
+   86% of paraphrase queries overall (100% on chat, 97% on docs, 60% on
+   code; verified genuine with known-item controls through the identical
+   replay path) — with few or no shared terms, conjunctive FTS has little
+   to match, and what it does match is never the target (R@10 0.000).
+   fidx's lexical arm barely survives (0.08–0.15) only because its
+   OR-token matching is looser.
 3. **fidx's vector arm does real semantic work on prose** — 0.45–0.54 R@10
    on the doc corpora and 0.37 on chat, at millisecond latency. Source
    attribution confirms it: 95–98% of fidx hybrid's paraphrase hits involve

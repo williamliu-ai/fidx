@@ -231,8 +231,8 @@ profile (`fidx index --profile e5-768`; the install default is
 **The semantic regime (paraphrase queries).** After an independent reviewer
 correctly noted that known-item queries reward lexical overlap, we built an
 LLM-written, separately-LLM-validated paraphrase query set (~0.1 query→doc
-word overlap; checked into `bench/data/`) — same targets, no shared
-vocabulary. Recall@10 there:
+word overlap; checked into `bench/data/`) — same targets, no copied
+distinctive terms. Recall@10 there:
 
 | corpus | fidx `--mode vector` | fidx hybrid | QMD `search` (BM25) | QMD `query` (LLM) |
 |---|---|---|---|---|
