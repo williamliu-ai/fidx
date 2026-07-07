@@ -95,9 +95,11 @@ query ──┬─ FTS5 MATCH (OR-of-quoted-tokens, phrases preserved) ─ top 5
   by both sources outranks a single-source rank-1 — that is the hybrid bet.
 - `fidx search --json` returns an agent envelope (`schema`,
   `status`, `request`, `summary`, `results`, `diagnostics`, `next_actions`)
-  rather than a bare list. The envelope gives callers enough context to decide
-  whether to inspect the top result, relax filters, change mode, change
-  truncation, broaden scope, or index data.
+  rather than a bare list. `summary.truncation_advice` reads the result count,
+  score profile and stored calibration floor to recommend `off`, `knee`, or
+  `calibrated` for the recall/purity tradeoff. The envelope gives callers
+  enough context to decide whether to inspect the top result, relax filters,
+  change mode, change truncation, broaden scope, or index data.
 
 ### Latency budget
 

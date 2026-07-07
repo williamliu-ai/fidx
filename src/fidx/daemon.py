@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 from . import search as searchmod
+from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
 
@@ -103,27 +104,243 @@ def _confidence(results: list[searchmod.Result], mode: str) -> str:
     return "mixed"
 
 
+def _calibration(conn) -> dict:
+    raw = get_meta(conn, "truncate_floor")
+    if raw is None:
+        return {"floor_available": False, "floor": None}
+    try:
+        return {"floor_available": True, "floor": round(float(raw), 5)}
+    except ValueError:
+        return {"floor_available": False, "floor": None}
+
+
+def _score_profile(results: list[searchmod.Result]) -> dict:
+    if not results:
+        return {
+            "count": 0,
+            "top_score": None,
+            "tail_score": None,
+            "spread": None,
+            "flat": True,
+            "has_knee": False,
+        }
+    scores = [r.score for r in results]
+    top = scores[0]
+    tail = scores[-1]
+    spread = top - tail
+    flat = spread <= 1e-12
+    has_knee = False
+    if len(results) >= 4 and not flat:
+        from . import truncate as truncatemod
+        has_knee = len(truncatemod.truncate(results, "knee", "hybrid")) < len(results)
+    return {
+        "count": len(results),
+        "top_score": round(top, 5),
+        "tail_score": round(tail, 5),
+        "spread": round(spread, 5),
+        "flat": flat,
+        "has_knee": has_knee,
+    }
+
+
+def _truncation_option(intent: str, truncate, lean: str, applicable: bool,
+                       recommended: bool, reason: str, command: list[str] | None) -> dict:
+    option = {
+        "intent": intent,
+        "truncate": truncate,
+        "lean": lean,
+        "applicable": applicable,
+        "recommended": recommended,
+        "reason": reason,
+    }
+    if applicable and command is not None:
+        option["command"] = command
+    return option
+
+
+def _truncation_advice(query: str, mode: str, collections: list[str], limit: int,
+                       min_score, truncate, pre_truncate: list[searchmod.Result],
+                       final: list[searchmod.Result], diagnostics: dict) -> dict:
+    effective_truncate = truncate or "off"
+    filters = diagnostics["filters"]
+    calibration = diagnostics["calibration"]
+    profile = _score_profile(pre_truncate)
+    floor_available = calibration["floor_available"]
+
+    recommendation = None
+    primary_action = None
+    lean = None
+    reason = "Truncation is not useful until the search has candidate results."
+
+    if final:
+        if effective_truncate != "off":
+            if effective_truncate == "calibrated" and not floor_available:
+                if profile["has_knee"]:
+                    recommendation = "knee"
+                    primary_action = "clean_shortlist"
+                    lean = "balanced"
+                    reason = (
+                        "No calibration floor is stored, so calibrated behaves like knee; "
+                        "use knee as the explicit balanced truncation mode."
+                    )
+                else:
+                    recommendation = "off"
+                    primary_action = "disable_truncation"
+                    lean = "recall"
+                    reason = (
+                        "No calibration floor is stored and the score profile has no "
+                        "applicable knee; use off to preserve recall."
+                    )
+            elif effective_truncate == "knee" and not profile["has_knee"]:
+                recommendation = "off"
+                primary_action = "disable_truncation"
+                lean = "recall"
+                reason = (
+                    "Knee truncation returned candidates but the score profile has no "
+                    "applicable knee; use off for the same recall without implying a cut."
+                )
+            else:
+                recommendation = effective_truncate if effective_truncate in ("knee", "calibrated") else "off"
+                primary_action = "keep_current"
+                lean = "purity" if effective_truncate == "calibrated" else "balanced"
+                reason = "The current truncation setting returned candidates; inspect before loosening it."
+        elif profile["count"] < 4:
+            recommendation = "off"
+            primary_action = "keep_current"
+            lean = "recall"
+            reason = (
+                f"Only {profile['count']} candidate(s) returned; knee needs at least 4 "
+                "scores, so keep truncation off to preserve recall."
+            )
+        elif profile["has_knee"]:
+            recommendation = "knee"
+            primary_action = "clean_shortlist"
+            lean = "balanced"
+            reason = (
+                "The result list has enough scores for a knee cut; use it to trim "
+                "the weak tail while keeping the confident head."
+            )
+        else:
+            recommendation = "off"
+            primary_action = "keep_current"
+            lean = "recall"
+            reason = (
+                "The score curve does not expose a useful knee; keep truncation off "
+                "and inspect or request more candidates."
+            )
+    elif filters["after_min_score"] == 0 and filters["raw_count"] > 0:
+        reason = "The minimum-score filter removed all candidates; adjust that before truncation."
+    elif filters["dropped_by_truncate"] > 0:
+        if effective_truncate == "calibrated" and floor_available and profile["has_knee"]:
+            recommendation = "knee"
+            primary_action = "clean_shortlist"
+            lean = "balanced"
+            reason = (
+                "Calibrated truncation removed every candidate; retry with knee to "
+                "loosen the corpus floor while still cutting the score tail."
+            )
+        else:
+            recommendation = "off"
+            primary_action = "disable_truncation"
+            lean = "recall"
+            reason = "Truncation removed every candidate; disable it to recover recall."
+
+    off_recommended = recommendation == "off"
+    knee_applicable = profile["count"] >= 4 and profile["has_knee"]
+    knee_recommended = recommendation == "knee"
+    calibrated_recommended = recommendation == "calibrated" and floor_available
+    if profile["count"] < 4:
+        knee_reason = "Knee needs at least 4 result scores; it would be a no-op here."
+    elif profile["flat"]:
+        knee_reason = "The score curve is flat, so a knee cut would not separate a tail."
+    elif knee_applicable:
+        knee_reason = "Balanced option: cut the score-curve tail without corpus calibration."
+    else:
+        knee_reason = "No useful knee was detected in the score profile."
+    if floor_available:
+        calibrated_reason = (
+            "Purity option: apply the stored corpus floor, then knee; this can abstain "
+            "or drop borderline results."
+        )
+    else:
+        calibrated_reason = (
+            "No stored truncate_floor is available; calibrated would behave like knee, "
+            "so it is not offered as a distinct action."
+        )
+    return {
+        "current": effective_truncate,
+        "recommendation": recommendation,
+        "primary_action": primary_action,
+        "lean": lean,
+        "reason": reason,
+        "score_profile": profile,
+        "options": [
+            _truncation_option(
+                "keep_current" if effective_truncate == "off" else "disable_truncation",
+                "off",
+                "recall",
+                True,
+                off_recommended,
+                "Recall option: keep every ranked candidate and inspect the tail manually.",
+                _search_command(query, mode, collections, limit, min_score, "off"),
+            ),
+            _truncation_option(
+                "clean_shortlist",
+                "knee",
+                "balanced",
+                knee_applicable,
+                knee_recommended,
+                knee_reason,
+                _search_command(query, mode, collections, limit, min_score, "knee"),
+            ),
+            _truncation_option(
+                "use_calibrated_abstention",
+                "calibrated",
+                "purity",
+                floor_available,
+                calibrated_recommended,
+                calibrated_reason,
+                _search_command(query, mode, collections, limit, min_score, "calibrated"),
+            ),
+        ],
+    }
+
+
 def _next_actions(query: str, mode: str, collections: list[str], limit: int, min_score,
-                  truncate, results: list[searchmod.Result], diagnostics: dict) -> list[dict]:
+                  truncate, results: list[searchmod.Result], diagnostics: dict,
+                  truncation_advice: dict) -> list[dict]:
     actions: list[dict] = []
     effective_truncate = truncate or "off"
 
     def add(intent: str, reason: str, command: list[str]) -> None:
-        actions.append({"intent": intent, "reason": reason, "command": command})
+        action = {"intent": intent, "reason": reason, "command": command}
+        if action not in actions:
+            actions.append(action)
 
     if results:
         best = results[0]
         add("inspect_best_match",
             "Open the highest-ranked candidate before deciding whether to refine the query.",
             ["fidx", "get", "--head", f"#{best.docid}"])
-        if effective_truncate == "off" and len(results) > 2:
-            add("clean_shortlist",
-                "If the tail looks noisy, rerun with a query-time score-curve cut.",
-                _search_command(query, mode, collections, limit, min_score, "knee"))
-        if effective_truncate == "off" and len(results) > 2:
-            add("use_calibrated_abstention",
-                "For a stable corpus, use the stored corpus floor plus knee truncation.",
-                _search_command(query, mode, collections, limit, min_score, "calibrated"))
+        options = {o["intent"]: o for o in truncation_advice["options"]}
+        for intent in ("clean_shortlist", "use_calibrated_abstention"):
+            option = options[intent]
+            if option["truncate"] == effective_truncate:
+                continue
+            if option["applicable"] and (
+                option["recommended"] or truncation_advice["recommendation"] == "knee"
+            ):
+                add(intent, option["reason"], option["command"])
+        if effective_truncate != "off" and (
+            diagnostics["filters"]["dropped_by_truncate"] > 0
+            or truncation_advice["primary_action"] == "disable_truncation"
+        ):
+            if effective_truncate == "calibrated" and options["clean_shortlist"]["applicable"]:
+                option = options["clean_shortlist"]
+                add("clean_shortlist", option["reason"], option["command"])
+            add("disable_truncation",
+                "Truncation hid candidates; rerun without a tail cut if the target is missing.",
+                _search_command(query, mode, collections, limit, min_score, "off"))
         if mode != "lexical":
             add("try_exact_terms",
                 "If the desired item has exact names, paths, errors, or identifiers, try lexical mode.",
@@ -168,9 +385,15 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
             "The minimum score filter removed available candidates.",
             _search_command(query, mode, collections, limit, None, effective_truncate))
     if effective_truncate != "off" and filters["after_min_score"] > filters["after_truncate"]:
-        add("disable_truncation",
-            "Truncation removed all candidates; rerun without a tail cut.",
-            _search_command(query, mode, collections, limit, min_score, "off"))
+        options = {o["intent"]: o for o in truncation_advice["options"]}
+        action = truncation_advice["primary_action"]
+        if action == "clean_shortlist" and options["clean_shortlist"]["applicable"]:
+            option = options["clean_shortlist"]
+            add("clean_shortlist", option["reason"], option["command"])
+        else:
+            add("disable_truncation",
+                "Truncation removed all candidates; rerun without a tail cut.",
+                _search_command(query, mode, collections, limit, min_score, "off"))
     if mode != "hybrid":
         add("try_hybrid",
             "Hybrid mode combines lexical and vector evidence and is the recall-first default.",
@@ -210,6 +433,7 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "known_collections": known,
         "unknown_collections": unknown,
         "filters": filters,
+        "calibration": _calibration(conn),
     }
     results = serialize_results(final, mode)
     status = "ok" if final else ("empty_index" if active_docs == 0 else "no_results")
@@ -221,6 +445,9 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "min_score": min_score,
         "truncate": truncate or "off",
     }
+    truncation_advice = _truncation_advice(
+        req["query"], mode, collections, limit, min_score, truncate, after_min,
+        final, diagnostics)
     return {
         "schema": SEARCH_SCHEMA,
         "query": req["query"],
@@ -232,11 +459,13 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
             "limit_reached": len(final) >= limit,
             "top_score": top_score,
             "source_mix": _source_mix(final, mode),
+            "truncation_advice": truncation_advice,
         },
         "results": results,
         "diagnostics": diagnostics,
-        "next_actions": _next_actions(req["query"], mode, collections, limit, min_score,
-                                      truncate, final, diagnostics),
+        "next_actions": _next_actions(req["query"], mode, collections, limit,
+                                      min_score, truncate, final, diagnostics,
+                                      truncation_advice),
     }
 
 
@@ -263,7 +492,6 @@ def run_search(conn, store, embedder, req: dict) -> dict:
     if truncate == "calibrated":
         # corpus-calibrated abstention floor (fidx calibrate --store) + knee tail
         from . import truncate as truncatemod
-        from .db import get_meta
         floor = get_meta(conn, "truncate_floor")
         if floor is not None:
             results = truncatemod.truncate(results, f"abs:{float(floor)}", mode)

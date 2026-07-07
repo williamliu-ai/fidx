@@ -153,6 +153,12 @@ rerank or add LLM work. For agent memory, start with default search while
 tuning prompts and switch to `--truncate knee` or `--truncate calibrated` when
 the caller needs cleaner tool output.
 
+With `--json`, fidx also returns `summary.truncation_advice`. Agents should use
+that field instead of blindly trying every truncation mode: `off` preserves
+recall for empty, short, or flat result sets; `knee` is the balanced retry when
+the score curve exposes a weak tail; `calibrated` is only offered as a distinct
+purity option when a stored corpus floor exists.
+
 ## Agents and RAG tools
 
 fidx is not an agent framework. Its integration surface is the CLI: register
@@ -201,15 +207,58 @@ docid or `collection/path`.
     "truncate": "off"
   },
   "summary": {
-    "result_count": 3,
+    "result_count": 5,
     "confidence": "strong",
-    "limit_reached": false,
+    "limit_reached": true,
     "top_score": 0.07491,
     "source_mix": {
       "both": 1,
-      "lexical_only": 1,
-      "vector_only": 1,
+      "lexical_only": 2,
+      "vector_only": 2,
       "other": 0
+    },
+    "truncation_advice": {
+      "current": "off",
+      "recommendation": "knee",
+      "primary_action": "clean_shortlist",
+      "lean": "balanced",
+      "reason": "The result list has enough scores for a knee cut; use it to trim the weak tail while keeping the confident head.",
+      "score_profile": {
+        "count": 5,
+        "top_score": 0.07491,
+        "tail_score": 0.01142,
+        "spread": 0.06349,
+        "flat": false,
+        "has_knee": true
+      },
+      "options": [
+        {
+          "intent": "keep_current",
+          "truncate": "off",
+          "lean": "recall",
+          "applicable": true,
+          "recommended": false,
+          "reason": "Recall option: keep every ranked candidate and inspect the tail manually.",
+          "command": ["fidx", "search", "what did we decide about retry handling?", "--json", "-c", "memory", "-n", "5"]
+        },
+        {
+          "intent": "clean_shortlist",
+          "truncate": "knee",
+          "lean": "balanced",
+          "applicable": true,
+          "recommended": true,
+          "reason": "Balanced option: cut the score-curve tail without corpus calibration.",
+          "command": ["fidx", "search", "what did we decide about retry handling?", "--json", "-c", "memory", "-n", "5", "--truncate", "knee"]
+        },
+        {
+          "intent": "use_calibrated_abstention",
+          "truncate": "calibrated",
+          "lean": "purity",
+          "applicable": false,
+          "recommended": false,
+          "reason": "No stored truncate_floor is available; calibrated would behave like knee, so it is not offered as a distinct action."
+        }
+      ]
     }
   },
   "results": [
@@ -235,9 +284,13 @@ docid or `collection/path`.
     "filters": {
       "raw_count": 5,
       "after_min_score": 5,
-      "after_truncate": 3,
+      "after_truncate": 5,
       "dropped_by_min_score": 0,
-      "dropped_by_truncate": 2
+      "dropped_by_truncate": 0
+    },
+    "calibration": {
+      "floor_available": false,
+      "floor": null
     }
   },
   "next_actions": [
@@ -245,18 +298,23 @@ docid or `collection/path`.
       "intent": "inspect_best_match",
       "reason": "Open the highest-ranked candidate before deciding whether to refine the query.",
       "command": ["fidx", "get", "--head", "#a1b2c3"]
+    },
+    {
+      "intent": "clean_shortlist",
+      "reason": "Balanced option: cut the score-curve tail without corpus calibration.",
+      "command": ["fidx", "search", "what did we decide about retry handling?", "--json", "-c", "memory", "-n", "5", "--truncate", "knee"]
     }
   ]
 }
 ```
 
 When `results` is empty, the envelope still includes a `status`,
-`diagnostics.filters` and `next_actions`. Agents should read those before
-retrying: remove `--min-score` if it filtered all candidates, drop or fix a bad
-collection scope, disable truncation if it removed everything, use
-`--mode lexical` for exact names/paths/errors, use `--mode vector` for
-synonym-heavy wording, or run `fidx collection add` + `fidx index` if the index
-has no documents.
+`diagnostics.filters`, `summary.truncation_advice` and `next_actions`. Agents
+should read those before retrying: remove `--min-score` if it filtered all
+candidates, drop or fix a bad collection scope, disable truncation if it
+removed everything, use `--mode lexical` for exact names/paths/errors, use
+`--mode vector` for synonym-heavy wording, or run `fidx collection add` +
+`fidx index` if the index has no documents.
 
 ## Verifying your install
 
