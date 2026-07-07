@@ -49,6 +49,114 @@ def test_run_search_returns_agent_envelope_for_results(indexed, store, embedder)
     assert any(a["intent"] == "inspect_best_match" for a in out["next_actions"])
 
 
+def test_run_search_too_many_results_suggests_noise_controls(
+    indexed, store, embedder, monkeypatch
+):
+    def fake_hybrid(conn, store, embedder, query, collections, limit):
+        return [
+            Result(1, "notes", "a.md", "A", "aaaaaa", 1.0,
+                   sources={"lexical": 0.9, "vector": 0.8}),
+            Result(2, "notes", "b.md", "B", "bbbbbb", 0.8,
+                   sources={"lexical": 0.7}),
+            Result(3, "notes", "c.md", "C", "cccccc", 0.6,
+                   sources={"vector": 0.6}),
+        ]
+
+    monkeypatch.setattr(daemon.searchmod, "search_hybrid", fake_hybrid)
+    out = daemon.run_search(indexed, store, embedder, {
+        "cmd": "search",
+        "query": "broad operations note",
+        "mode": "hybrid",
+        "collections": [],
+        "limit": 3,
+        "min_score": None,
+        "truncate": None,
+    })
+
+    intents = {a["intent"]: a for a in out["next_actions"]}
+    assert out["status"] == "ok"
+    assert out["summary"]["result_count"] == 3
+    assert out["summary"]["limit_reached"] is True
+    assert out["summary"]["confidence"] == "strong"
+    assert intents["clean_shortlist"]["command"] == [
+        "fidx", "search", "broad operations note", "--json", "-n", "3",
+        "--truncate", "knee",
+    ]
+    assert intents["use_calibrated_abstention"]["command"] == [
+        "fidx", "search", "broad operations note", "--json", "-n", "3",
+        "--truncate", "calibrated",
+    ]
+    assert intents["increase_limit"]["command"] == [
+        "fidx", "search", "broad operations note", "--json", "-n", "6",
+    ]
+
+
+def test_run_search_too_few_results_suggests_broadening_not_noise_controls(
+    indexed, store, embedder, monkeypatch
+):
+    def fake_hybrid(conn, store, embedder, query, collections, limit):
+        return [Result(1, "notes", "a.md", "A", "aaaaaa", 0.5)]
+
+    monkeypatch.setattr(daemon.searchmod, "search_hybrid", fake_hybrid)
+    out = daemon.run_search(indexed, store, embedder, {
+        "cmd": "search",
+        "query": "overly specific remembered wording",
+        "mode": "hybrid",
+        "collections": [],
+        "limit": 5,
+        "min_score": None,
+        "truncate": None,
+    })
+
+    intents = {a["intent"]: a for a in out["next_actions"]}
+    assert out["status"] == "ok"
+    assert out["summary"]["result_count"] == 1
+    assert out["summary"]["limit_reached"] is False
+    assert out["summary"]["confidence"] == "narrow"
+    assert "clean_shortlist" not in intents
+    assert "use_calibrated_abstention" not in intents
+    assert "increase_limit" not in intents
+    assert intents["broaden_query"]["command"] == [
+        "fidx", "search", "<broader query>", "--json", "-n", "5",
+    ]
+
+
+def test_run_search_no_results_suggests_alternate_modes_and_broader_query(
+    indexed, store, embedder
+):
+    out = daemon.run_search(indexed, store, embedder, {
+        "cmd": "search",
+        "query": "zzznevermatch",
+        "mode": "lexical",
+        "collections": [],
+        "limit": 5,
+        "min_score": None,
+        "truncate": None,
+    })
+
+    intents = {a["intent"]: a for a in out["next_actions"]}
+    assert out["status"] == "no_results"
+    assert out["summary"]["result_count"] == 0
+    assert out["summary"]["confidence"] == "none"
+    assert out["diagnostics"]["filters"] == {
+        "raw_count": 0,
+        "after_min_score": 0,
+        "after_truncate": 0,
+        "dropped_by_min_score": 0,
+        "dropped_by_truncate": 0,
+    }
+    assert "try_exact_terms" not in intents
+    assert intents["try_hybrid"]["command"] == [
+        "fidx", "search", "zzznevermatch", "--json", "-n", "5",
+    ]
+    assert intents["try_conceptual_terms"]["command"] == [
+        "fidx", "search", "zzznevermatch", "--json", "--mode", "vector", "-n", "5",
+    ]
+    assert intents["broaden_query"]["command"] == [
+        "fidx", "search", "<broader query>", "--json", "--mode", "lexical", "-n", "5",
+    ]
+
+
 def test_run_search_explains_when_min_score_filters_all_hits(indexed, store, embedder):
     out = daemon.run_search(indexed, store, embedder, {
         "cmd": "search",
