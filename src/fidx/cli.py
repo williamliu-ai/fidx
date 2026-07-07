@@ -44,7 +44,21 @@ def open_index(db_path: Path, profile_name: str | None = None):
               help="Index database path (default: $FIDX_DB or ~/.cache/fidx/index.db).")
 @click.pass_context
 def main(ctx: click.Context, db_path: Path | None) -> None:
-    """fidx — fast local semantic search for markdown, text, chat and code."""
+    """fidx — fast local semantic search for markdown, text, chat and code.
+
+    \b
+    Agent quick path:
+      fidx collection add <path> --name <scope>
+      fidx index
+      fidx serve
+      fidx search "<query>" --json -n 10
+      fidx get --head "#docid"
+
+    \b
+    fidx is a local AI search engine: hybrid BM25 + vector search in one
+    SQLite-backed index, CPU-only, offline, and no LLM calls in the query path.
+    For agent/tool selection notes, see docs/AGENT_GUIDE.md in the repository.
+    """
     ctx.ensure_object(dict)
     ctx.obj["db_path"] = (db_path or config.default_db_path()).expanduser()
 
@@ -219,7 +233,19 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
 def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: int,
            mode: str, as_json: bool, files_only: bool, min_score: float | None,
            truncate: str | None, no_daemon: bool) -> None:
-    """Search the index. Default mode is hybrid (best recall)."""
+    """Search the index. Default mode is hybrid (best recall).
+
+    \b
+    Agent use:
+      --json returns the fidx.search.v2 envelope with ranked results,
+      diagnostics, summary.truncation_advice and runnable next_actions.
+
+    \b
+      Use --mode lexical for exact names, paths, errors and identifiers.
+      Use --mode vector for synonym-heavy or conceptual wording.
+      Use -c/--collection to scope to memory, docs, code or another source.
+      Use --truncate only when the JSON truncation_advice recommends it.
+    """
     db_path: Path = ctx.obj["db_path"]
     req = {"cmd": "search", "query": query, "mode": mode,
            "collections": list(collections), "limit": limit, "min_score": min_score,

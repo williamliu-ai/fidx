@@ -43,6 +43,7 @@ dependencies = [
 Homepage = "https://github.com/williamliu-ai/fidx"
 Repository = "https://github.com/williamliu-ai/fidx"
 Issues = "https://github.com/williamliu-ai/fidx/issues"
+"Agent Guide" = "https://github.com/williamliu-ai/fidx/blob/main/docs/AGENT_GUIDE.md"
 
 [project.scripts]
 fidx = "fidx.cli:main"

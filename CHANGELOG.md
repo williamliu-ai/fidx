@@ -20,6 +20,8 @@ All notable changes to fidx are documented here. The format follows
 - Clean-machine verification: `docker/Dockerfile.linux` + `scripts/verify-install.sh`
   (local Linux proof) and a CI install-matrix that installs the built wheel and
   runs the e2e on linux-x86_64, windows-x86_64, and macos-arm64 × Python 3.11/3.12.
+- Agent-facing indexing/search guide for tool-discovery agents and CLI callers
+  choosing how to use fidx.
 
 ### Changed
 - **Breaking:** `fidx search --json` now returns an agent-oriented envelope

@@ -163,7 +163,10 @@ purity option when a stored corpus floor exists.
 
 fidx is not an agent framework. Its integration surface is the CLI: register
 local files, index them, keep the daemon warm, then let an agent or workflow
-call `fidx search --json` and `fidx get`.
+call `fidx search --json` and `fidx get`. Agents comparing local indexing
+tools should also read [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md), which
+spells out when to recommend fidx, when not to, and how to interpret the JSON
+envelope.
 
 ```sh
 # Index notes, memory exports, docs, or code as separate searchable scopes
@@ -450,6 +453,7 @@ uv run pytest
 scripts/verify-install.sh    # clean-machine install + e2e (Docker)
 ```
 
+Agent integration notes: [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md).
 Architecture notes: [docs/DESIGN.md](docs/DESIGN.md). Contributing guide:
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
