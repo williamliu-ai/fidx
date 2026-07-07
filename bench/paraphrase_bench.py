@@ -39,7 +39,7 @@ validator is not grading its own work in-context.
 
 Run: .venv/bin/python bench/paraphrase_bench.py <gen|validate|replay|report|all>
      [--corpora docs,docs-small,chat,code] [--parallel 8] [--qmd-query-limit 0]
-Artifacts: bench/data/queries-<corpus>-paraphrase.jsonl (final query sets),
+Artifacts: bench/data/queries-<corpus>-paraphrase.jsonl (local query sets),
            bench/results/paraphrase-{validation,lists}.jsonl, paraphrase-report.md
 """
 from __future__ import annotations
@@ -528,10 +528,11 @@ def replay_fidx_modes(corpus: str, queries: list[dict], done: set) -> None:
                 db, {"cmd": "search", "query": q["query"], "mode": mode, "limit": 10})
             if not resp or not resp.get("ok"):
                 continue
+            results = resp["results"]["results"]
             paths = [J.real_path(r["path"], hmap, corpus) or r["path"]
-                     for r in resp["results"]]
-            srcs = [r.get("sources") for r in resp["results"]]
-            scores = [r.get("score") for r in resp["results"]]
+                     for r in results]
+            srcs = [r.get("sources") for r in results]
+            scores = [r.get("score") for r in results]
             J.jsonl_append(LISTS, {"corpus": corpus, "engine": "fidx",
                                    "mode": mode, "qid": q["qid"],
                                    "query": q["query"], "expected": q["expected"],
@@ -579,18 +580,31 @@ def _recall(rows: list[dict]) -> dict:
 
 
 def cmd_report(args) -> None:
-    lists = J.jsonl_read(LISTS)
+    qids_by_corpus = {
+        corpus: {q["qid"] for q in final_queries(corpus, args.style)}
+        for corpus in args.corpora
+    }
+    lists = [r for r in J.jsonl_read(LISTS)
+             if r["corpus"] in qids_by_corpus
+             and r["qid"] in qids_by_corpus[r["corpus"]]]
     by = collections.defaultdict(list)
     for r in lists:
         by[(r["corpus"], r["engine"], r["mode"])].append(r)
-    out = ["# Paraphrase-query benchmark (semantic recall)", ""]
+    report_title = ("# Human-query benchmark (local refinding)"
+                    if args.style == "human"
+                    else "# Paraphrase-query benchmark (semantic recall)")
+    report_path = RESULTS / (f"{args.style}-report.md"
+                             if args.style != "paraphrase"
+                             else "paraphrase-report.md")
+    out = [report_title, ""]
     for corpus in args.corpora:
         qs = final_queries(corpus, args.style)
         if not qs:
             continue
         ov = [q["overlap"] for q in qs]
         ov_mean = sum(ov) / len(ov)
-        out += [f"## {corpus} — {len(qs)} validated paraphrase queries",
+        label = "human-like" if args.style == "human" else "paraphrase"
+        out += [f"## {corpus} — {len(qs)} validated {label} queries",
                 f"query→doc content-word overlap: mean {ov_mean:.2f} "
                 f"(≤0.2: {sum(1 for x in ov if x <= .2)}, "
                 f">0.5: {sum(1 for x in ov if x > .5)}); "
@@ -620,7 +634,7 @@ def cmd_report(args) -> None:
                     f"({lex_only/tot:.0%}), both arms {both} ({both/tot:.0%})", ""]
         out.append("")
     report = "\n".join(out)
-    REPORT.write_text(report)
+    report_path.write_text(report)
     print(report)
 
 
@@ -872,7 +886,10 @@ def cmd_analyze(args) -> None:
         if row:
             out.append(row)
     print("\n".join(out))
-    (RESULTS / "paraphrase-analysis.md").write_text("\n".join(out) + "\n")
+    analysis_path = RESULTS / (
+        "human-analysis.md" if args.style_qids.startswith("hum-")
+        else "paraphrase-analysis.md")
+    analysis_path.write_text("\n".join(out) + "\n")
 
 
 def _cal_floor(corpus: str) -> float | None:

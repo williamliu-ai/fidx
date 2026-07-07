@@ -31,7 +31,7 @@ backbone (BM25 + vectors + RRF) does most of the work before the LLM stages.
 
 What we kept: the storage shape (one SQLite file, FTS5 external-content +
 sqlite-vec), structure-aware chunking with overlap, RRF fusion, collection
-scoping, docids, JSON/agent output modes, a warm daemon.
+scoping, docids, agent-oriented JSON output, a warm daemon.
 
 What we dropped: every LLM call in the query path. No query expansion, no
 reranker. One query embedding is the only model work per search.
@@ -93,6 +93,11 @@ query ──┬─ FTS5 MATCH (OR-of-quoted-tokens, phrases preserved) ─ top 5
 - Vector search over-fetches 4× then dedups to best chunk per document.
 - RRF: `score = Σ weight / (60 + rank + 1)`, equal weights. A document found
   by both sources outranks a single-source rank-1 — that is the hybrid bet.
+- `fidx search --json` returns an agent envelope (`schema`,
+  `status`, `request`, `summary`, `results`, `diagnostics`, `next_actions`)
+  rather than a bare list. The envelope gives callers enough context to decide
+  whether to inspect the top result, relax filters, change mode, change
+  truncation, broaden scope, or index data.
 
 ### Latency budget
 

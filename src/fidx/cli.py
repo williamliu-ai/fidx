@@ -207,7 +207,8 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
 @click.option("-n", "--limit", default=10, show_default=True)
 @click.option("--mode", type=click.Choice(["hybrid", "lexical", "vector"]), default="hybrid",
               show_default=True, help="hybrid = BM25 + vector with RRF fusion.")
-@click.option("--json", "as_json", is_flag=True, help="Machine-readable output for agents.")
+@click.option("--json", "as_json", is_flag=True,
+              help="Machine-readable agent envelope with results, diagnostics and next actions.")
 @click.option("--files", "files_only", is_flag=True, help="Print matching paths only.")
 @click.option("--min-score", type=float, default=None)
 @click.option("--truncate", default=None,
@@ -224,30 +225,31 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
            "collections": list(collections), "limit": limit, "min_score": min_score,
            "truncate": truncate}
 
-    results: list[dict] | None = None
+    payload: dict | None = None
     if not no_daemon:
         resp = daemon.client_request(db_path, req)
         if resp is not None and resp.get("ok"):
-            results = resp["results"]
-    if results is None:
+            candidate = resp.get("results")
+            if isinstance(candidate, dict) and candidate.get("schema") == daemon.SEARCH_SCHEMA:
+                payload = candidate
+    if payload is None:
         conn, prof = open_index(db_path)
         store = vector_store.open_store(conn, db_path)
         embedder = FastEmbedder(prof) if mode in ("vector", "hybrid") else None
         try:
-            raw = daemon.run_search(conn, store, embedder, req)
+            payload = daemon.run_search(conn, store, embedder, req)
         except ValueError as exc:
             raise click.ClickException(str(exc))
-        results = raw
 
     if as_json:
-        click.echo(json.dumps(results, ensure_ascii=False))
+        click.echo(json.dumps(payload, ensure_ascii=False))
     elif files_only:
-        for r in results:
+        for r in payload["results"]:
             click.echo(r["path"])
     else:
-        if not results:
+        if not payload["results"]:
             click.echo("no results")
-        for r in results:
+        for r in payload["results"]:
             click.echo(f"{r['score']:.4f}  {r['docid']}  {r['path']}  — {r['title']}")
             if r["snippet"]:
                 click.echo(f"        {r['snippet'][:160]}")

@@ -113,8 +113,10 @@ fidx index
 fidx search "the doc that discussed the most recent indexing project"
 fidx search "Grace Hopper" --mode lexical      # exact-name lookup, no model load
 fidx search "deployment checklist" -c notes    # scope to one collection
+fidx search "old retry decision" --truncate knee        # cleaner short list
+fidx search "old retry decision" --truncate calibrated  # corpus-calibrated abstention
 
-# Agent-friendly output
+# Agent-friendly output: results plus diagnostics and suggested follow-up calls
 fidx search "error handling" --json -n 10
 fidx search "auth" --files --min-score 0.02
 
@@ -131,6 +133,25 @@ fidx search "..."     # all searches now take milliseconds
 ```
 
 The CLI uses the daemon automatically when it is running; `--no-daemon` opts out.
+
+### Choosing result truncation
+
+By default, `fidx search` returns the top `-n` ranked results with no tail
+truncation. That is the best recall default when a human or agent can inspect
+several candidates, but the tail may include weakly related noise. Use
+`--truncate` when a workflow prefers a shorter, cleaner list or explicit
+abstention:
+
+| Option | What it does | Use when |
+|---|---|---|
+| `off` (default) | No result-list truncation; return the top `-n` ranked hits. | You want maximum recall and can inspect multiple candidates. |
+| `knee` | Computes the elbow of the current query's score curve and drops the tail. No calibration required. | You want a cleaner shortlist from one query, accepting that some hard/vague queries may lose recall. |
+| `calibrated` | Applies a corpus-specific score floor, then `knee`. `fidx index` maintains the floor by default; `fidx calibrate --store` recomputes it manually. | You want more answer/no-answer behavior for a stable corpus. If no floor is stored, it behaves like `knee`. |
+
+`knee` and `calibrated` only remove results from the ranked list; they do not
+rerank or add LLM work. For agent memory, start with default search while
+tuning prompts and switch to `--truncate knee` or `--truncate calibrated` when
+the caller needs cleaner tool output.
 
 ## Agents and RAG tools
 
@@ -154,6 +175,7 @@ fidx search "what did we decide about retry handling?" -c memory --json -n 5
 
 # Local RAG retrieval: search docs, then fetch the selected source text
 fidx search "sqlite vector backend configuration" -c docs --json -n 5
+fidx search "sqlite vector backend configuration" -c docs --json -n 5 --truncate knee
 fidx get --head "#a1b2c3"
 
 # Coding-agent context: return only matching paths for follow-up reads
@@ -162,8 +184,79 @@ fidx search "where is request timeout handled?" -c code --files -n 20
 
 For MCP servers, LangChain/LangGraph tools, LlamaIndex retrievers, workflow
 nodes, or shell-based coding agents, the same contract is usually enough:
-`fidx search --json` returns ranked results with snippets, paths, docids and
-scores; `fidx get` expands a selected result by docid or `collection/path`.
+`fidx search --json` returns a stable agent envelope with ranked results,
+diagnostics and suggested next actions; `fidx get` expands a selected result by
+docid or `collection/path`.
+
+```json
+{
+  "schema": "fidx.search.v2",
+  "query": "what did we decide about retry handling?",
+  "status": "ok",
+  "request": {
+    "mode": "hybrid",
+    "collections": ["memory"],
+    "limit": 5,
+    "min_score": null,
+    "truncate": "off"
+  },
+  "summary": {
+    "result_count": 3,
+    "confidence": "strong",
+    "limit_reached": false,
+    "top_score": 0.07491,
+    "source_mix": {
+      "both": 1,
+      "lexical_only": 1,
+      "vector_only": 1,
+      "other": 0
+    }
+  },
+  "results": [
+    {
+      "rank": 1,
+      "path": "memory/decisions.md",
+      "collection": "memory",
+      "relpath": "decisions.md",
+      "title": "decisions.md",
+      "docid": "#a1b2c3",
+      "score": 0.07491,
+      "snippet": "retry handling should use bounded exponential backoff...",
+      "sources": {
+        "lexical": 0.81234,
+        "vector": 0.70123
+      }
+    }
+  ],
+  "diagnostics": {
+    "active_docs": 1234,
+    "known_collections": ["docs", "memory"],
+    "unknown_collections": [],
+    "filters": {
+      "raw_count": 5,
+      "after_min_score": 5,
+      "after_truncate": 3,
+      "dropped_by_min_score": 0,
+      "dropped_by_truncate": 2
+    }
+  },
+  "next_actions": [
+    {
+      "intent": "inspect_best_match",
+      "reason": "Open the highest-ranked candidate before deciding whether to refine the query.",
+      "command": ["fidx", "get", "--head", "#a1b2c3"]
+    }
+  ]
+}
+```
+
+When `results` is empty, the envelope still includes a `status`,
+`diagnostics.filters` and `next_actions`. Agents should read those before
+retrying: remove `--min-score` if it filtered all candidates, drop or fix a bad
+collection scope, disable truncation if it removed everything, use
+`--mode lexical` for exact names/paths/errors, use `--mode vector` for
+synonym-heavy wording, or run `fidx collection add` + `fidx index` if the index
+has no documents.
 
 ## Verifying your install
 
@@ -264,7 +357,7 @@ profile (`fidx index --profile e5-768`; the install default is
 **The semantic regime (paraphrase queries).** After an independent reviewer
 correctly noted that known-item queries reward lexical overlap, we built an
 LLM-written, separately-LLM-validated paraphrase query set (~0.1 query→doc
-word overlap; checked into `bench/data/`) — same targets, no copied
+word overlap; generated locally under `bench/data/`) — same targets, no copied
 distinctive terms. Recall@10 there:
 
 | corpus | fidx `--mode vector` | fidx hybrid | QMD `search` (BM25) | QMD `query` (LLM) |

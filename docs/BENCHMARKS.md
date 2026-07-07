@@ -130,10 +130,21 @@ fidx+knee beats QMD's hybrid on every axis on docs and code, and dominates
 purity at tied recall on docs-small/chat. The recall *cost* of knee on fidx
 itself is 0–3.6 pts (e.g. code 0.900 → 0.864). The default remains
 `--truncate off`; see [Threats to validity](#threats-to-validity) for why the
-knee *recall* numbers should not be over-generalized, and `fidx calibrate`
-for the corpus-adaptive alternative (derives a score floor from the indexed
-corpus itself — self-retrieval positives + gibberish negatives — instead of
-tuning to any benchmark).
+knee *recall* numbers should not be over-generalized.
+
+The product options are:
+
+| search option | policy | when to use it |
+|---|---|---|
+| `--truncate off` / omitted | Return the top `-n` ranked results. | Default recall-first behavior; best when a human or agent can inspect candidates. |
+| `--truncate knee` | Compute the elbow of this query's score curve and drop the weak tail. | Cleaner shortlists or tool calls where some recall loss is acceptable. |
+| `--truncate calibrated` | Apply a corpus-specific score floor, then `knee`. | Stable corpora where answer/no-answer behavior matters more than always returning `-n` hits. |
+
+`calibrated` is not benchmark-tuned. It derives a score floor from the indexed
+corpus itself: self-retrieval pseudo-queries provide positive examples, and
+gibberish no-match queries estimate the noise ceiling. `fidx index` maintains
+that stored floor by default; `fidx calibrate --store` recomputes it manually.
+If no floor is stored, `--truncate calibrated` falls back to the `knee` cut.
 
 ## Paraphrase queries — semantic recall (the hard set)
 
@@ -151,8 +162,8 @@ copied distinctive terms); failed queries were regenerated once, and
 still-invalid ones dropped. Final sets: docs-small 148, docs 491, chat 498,
 code 485 (98.4% of the known-item counts). Query→document content-word
 overlap averages **0.09–0.12** (the known-item sets are ~1.0 by
-construction) — these are genuinely non-lexical. The sets are checked into
-`bench/data/queries-*-paraphrase.jsonl`; the harness is
+construction) — these are genuinely non-lexical. The generated query sets
+live locally as `bench/data/queries-*-paraphrase.jsonl`; the harness is
 `bench/paraphrase_bench.py`.
 
 **Results** (recall@10; same kept indexes as the main tables; fidx e5-768 /

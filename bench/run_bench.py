@@ -318,7 +318,8 @@ def bench_fidx(corpus: str, queries: list[dict], profile: str, cold_sample: int,
                 if failures <= 3 or failures % 100 == 0:
                     print(f"  WARN daemon request failed ({failures}) at {q['qid']}: "
                           f"{(resp or {}).get('error', 'no response')}", file=sys.stderr)
-            paths = [r["path"] for r in resp["results"]] if ok else []
+            results = resp["results"]["results"] if ok else []
+            paths = [r["path"] for r in results]
             rows.append({"qid": q["qid"], "type": q["type"],
                          "rank": hit_rank(paths, q["expected"])})
         if failures:

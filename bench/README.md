@@ -50,14 +50,15 @@ uv run python bench/corpora.py code   # ~4 GB of clones; idempotent, resumable
 uv run python bench/gen_queries.py bench/data/docs -n 500
 ```
 
-A fourth type, **paraphrase**, lives in `queries-<corpus>-paraphrase.jsonl`:
+A fourth type, **paraphrase**, lives locally in
+`bench/data/queries-<corpus>-paraphrase.jsonl`:
 for every known-item query, an LLM wrote a query for the same target document
 in different words (distinctive terms deliberately paraphrased away), then a
 separate LLM pass validated each one (specific enough to retrieve the doc; no
 copied rare terms). These test semantic recall — the known-item types above
-reward lexical overlap by construction. They are **checked into the repo**
-(unlike the corpora and seeded query sets, they are not mechanically
-reproducible); regenerate/extend with `bench/paraphrase_bench.py`.
+reward lexical overlap by construction. Query JSONL files are generated local
+artifacts and are not tracked; regenerate/extend with
+`bench/paraphrase_bench.py`.
 
 Ground truth is the source file. The same queries are replayed against every
 engine, so generation bias hits all engines equally.
@@ -85,6 +86,27 @@ uv run python bench/run_bench.py run --engine qmd --corpus docs
 # Render the comparison table from bench/results/*.json
 uv run python bench/run_bench.py report
 ```
+
+### Result truncation options
+
+fidx search is recall-first by default: no truncation is applied unless the
+caller passes `--truncate`. The public benchmark tables sometimes report
+truncated fidx rows because recall and purity trade off, and truncation makes
+that trade visible.
+
+| option | behavior | benchmark meaning |
+|---|---|---|
+| omitted / `off` | Return the top `-n` ranked results. | Measures maximum top-k recall, including weak tail results. |
+| `knee` | Query-time elbow cut over the score-vs-rank curve. | Parameter-free cleaner shortlist; no calibration or labels required. |
+| `calibrated` | Stored corpus floor, then `knee`. | Corpus-adaptive abstention policy; `fidx index` maintains the floor by default, and `fidx calibrate --store` refreshes it manually. |
+
+If no floor is stored, `--truncate calibrated` behaves like `--truncate knee`.
+Truncation only drops already-ranked fidx results; it never reranks or adds
+LLM work.
+
+For harness code that calls `fidx search --json`, remember that fidx returns an
+agent envelope. Ranked rows are in the nested `results` field alongside
+diagnostics and suggested follow-up actions.
 
 Measurement methodology (enforced by the harness):
 

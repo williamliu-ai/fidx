@@ -221,8 +221,9 @@ def replay_fidx(corpus: str, profile: str, backend: str, queries: list[dict],
                     print(f"  WARN fidx {mode} {q['qid']}: "
                           f"{(resp or {}).get('error', 'no response')}", file=sys.stderr)
                 continue
+            results = resp["results"]["results"]
             paths = [real_path(r["path"], hmap, corpus) or r["path"]
-                     for r in resp["results"]]
+                     for r in results]
             jsonl_append(LISTS, {"corpus": corpus, "engine": "fidx", "mode": mode,
                                  "qid": q["qid"], "query": q["query"],
                                  "expected": q["expected"], "paths": paths})
