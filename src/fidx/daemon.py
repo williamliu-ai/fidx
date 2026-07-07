@@ -132,6 +132,10 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
             add("try_conceptual_terms",
                 "If the desired item uses different wording, try vector mode.",
                 _search_command(query, "vector", collections, limit, None, "off"))
+        if len(results) <= 2 and diagnostics["filters"]["after_truncate"] < limit:
+            add("broaden_query",
+                "Only a narrow set returned; use fewer or broader terms if the target is missing.",
+                _search_command("<broader query>", mode, collections, limit, None, "off"))
         if diagnostics["filters"]["after_truncate"] >= limit:
             add("increase_limit",
                 "The result list reached the requested limit; ask for more candidates.",
