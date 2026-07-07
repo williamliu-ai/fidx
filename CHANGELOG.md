@@ -6,6 +6,8 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-07
+
 ### Added
 - `fidx doctor` — diagnoses host capabilities (sqlite loadable extensions, FTS5,
   sqlite-vec `vec0`, embedding-model cache) and exits non-zero on a hard failure.
