@@ -14,12 +14,8 @@ build/
 *.db-shm
 *.sock
 
-# Benchmark data and results (fetched/generated, not source) — EXCEPT the
-# paraphrase query sets, which are LLM-generated (not seed-reproducible) and
-# therefore tracked as source.
+# Benchmark data, generated queries, and results are local artifacts.
 bench/data/*
-!bench/data/queries-*-paraphrase.jsonl
-!bench/data/queries-*-human.jsonl
 bench/results/
 
 # Editors / OS
