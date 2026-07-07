@@ -46,6 +46,9 @@ def test_run_search_returns_agent_envelope_for_results(indexed, store, embedder)
     assert out["results"][0]["rank"] == 1
     assert out["results"][0]["path"] == "notes/deploy.md"
     assert out["results"][0]["docid"].startswith("#")
+    assert out["diagnostics"]["index_empty"] is False
+    assert "active_docs" not in out["diagnostics"]
+    assert "known_collections" not in out["diagnostics"]
     assert any(a["intent"] == "inspect_best_match" for a in out["next_actions"])
 
 
@@ -281,8 +284,8 @@ def test_run_search_reports_unknown_collection_and_retry_command(indexed, store,
     })
 
     assert out["status"] == "no_results"
-    assert out["diagnostics"]["known_collections"] == ["notes"]
     assert out["diagnostics"]["unknown_collections"] == ["missing"]
+    assert "known_collections" not in out["diagnostics"]
     retry = next(a for a in out["next_actions"] if a["intent"] == "retry_without_scope")
     assert retry["command"] == ["fidx", "search", "carbonara", "--json", "-n", "5"]
 
@@ -299,7 +302,8 @@ def test_run_search_empty_index_tells_agent_to_add_and_index(conn, store, embedd
     })
 
     assert out["status"] == "empty_index"
-    assert out["diagnostics"]["active_docs"] == 0
+    assert out["diagnostics"]["index_empty"] is True
+    assert "active_docs" not in out["diagnostics"]
     assert out["results"] == []
     assert [a["intent"] for a in out["next_actions"][:2]] == ["add_collection", "index"]
 

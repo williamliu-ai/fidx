@@ -110,7 +110,8 @@ query ──┬─ FTS5 MATCH (OR-of-quoted-tokens, phrases preserved) ─ top 5
 | lexical-only query | no model load at all |
 
 The daemon (`fidx serve`) holds the SQLite connection and ONNX model on a
-unix socket; the CLI auto-detects it. This is the intended mode for agents.
+unix socket in a per-user private runtime/cache directory; the CLI
+auto-detects it. This is the intended mode for agents.
 
 ## Invariants
 

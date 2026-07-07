@@ -29,9 +29,14 @@ All notable changes to fidx are documented here. The format follows
   also includes `schema`, `status`, request echo, summary, diagnostics, and
   suggested `next_actions` so agents can decide whether to inspect, retry with
   different search parameters, relax filters, or index data.
+- Search diagnostics avoid exposing collection inventory or exact active
+  document counts. The envelope reports `index_empty` and only echoes requested
+  scopes that are unknown.
 - The search JSON summary now includes `truncation_advice`, which recommends
   `off`, `knee` or `calibrated` according to the result count, score profile
   and stored calibration floor.
+- The warm daemon socket now lives under a per-user runtime/cache directory and
+  is bound with owner-only permissions.
 - `db.py` loads `sqlite_vec` lazily and falls back to `pysqlite3` where the
   stdlib `sqlite3` lacks extension loading (best-effort; Linux convenience).
 

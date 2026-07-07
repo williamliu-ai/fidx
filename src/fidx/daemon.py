@@ -15,6 +15,7 @@ protocol is one JSON request line in, one JSON response line out.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -29,7 +30,32 @@ SEARCH_SCHEMA = "fidx.search.v2"
 
 
 def socket_path_for(db_path: Path) -> Path:
-    return db_path.with_suffix(".sock")
+    resolved = str(Path(db_path).expanduser().resolve(strict=False))
+    digest = hashlib.sha256(resolved.encode()).hexdigest()[:16]
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        base = Path(runtime).expanduser() / "fidx"
+    else:
+        cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")).expanduser()
+        base = cache / "fidx" / "run"
+    return base / f"{digest}.sock"
+
+
+def _prepare_socket_path(db_path: Path) -> Path:
+    sock_path = socket_path_for(db_path)
+    sock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(sock_path.parent, 0o700)
+    return sock_path
+
+
+def _bind_private_unix_server(sock_path: Path, handler) -> socketserver.UnixStreamServer:
+    old_umask = os.umask(0o177)
+    try:
+        server = socketserver.UnixStreamServer(str(sock_path), handler)
+    finally:
+        os.umask(old_umask)
+    os.chmod(sock_path, 0o600)
+    return server
 
 
 def _result_sources(result: searchmod.Result, mode: str) -> dict[str, float]:
@@ -57,8 +83,18 @@ def serialize_results(results: list[searchmod.Result], mode: str) -> list[dict]:
     ]
 
 
-def _known_collections(conn) -> list[str]:
-    return [r["name"] for r in conn.execute("SELECT name FROM collections ORDER BY name")]
+def _unknown_collections(conn, collections: list[str]) -> list[str]:
+    if not collections:
+        return []
+    known = set()
+    for collection in collections:
+        row = conn.execute(
+            "SELECT name FROM collections WHERE name = ?",
+            (collection,),
+        ).fetchone()
+        if row:
+            known.add(row["name"])
+    return sorted(c for c in collections if c not in known)
 
 
 def _search_command(query: str, mode: str, collections: list[str], limit: int,
@@ -359,7 +395,7 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
                 _search_command(query, mode, collections, limit * 2, min_score, effective_truncate))
         return actions
 
-    if diagnostics["active_docs"] == 0:
+    if diagnostics["index_empty"]:
         actions += [
             {"intent": "add_collection",
              "reason": "The index has no active documents.",
@@ -416,9 +452,7 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
                     min_score, truncate, raw: list[searchmod.Result],
                     after_min: list[searchmod.Result],
                     final: list[searchmod.Result]) -> dict:
-    known = _known_collections(conn)
-    known_set = set(known)
-    unknown = sorted(c for c in collections if c not in known_set)
+    unknown = _unknown_collections(conn, collections)
     filters = {
         "raw_count": len(raw),
         "after_min_score": len(after_min),
@@ -428,15 +462,15 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
     }
     active_docs = conn.execute(
         "SELECT count(*) AS n FROM documents WHERE active = 1").fetchone()["n"]
+    index_empty = active_docs == 0
     diagnostics = {
-        "active_docs": active_docs,
-        "known_collections": known,
+        "index_empty": index_empty,
         "unknown_collections": unknown,
         "filters": filters,
         "calibration": _calibration(conn),
     }
     results = serialize_results(final, mode)
-    status = "ok" if final else ("empty_index" if active_docs == 0 else "no_results")
+    status = "ok" if final else ("empty_index" if index_empty else "no_results")
     top_score = round(final[0].score, 5) if final else None
     request = {
         "mode": mode,
@@ -504,8 +538,10 @@ def run_search(conn, store, embedder, req: dict) -> dict:
 
 
 def serve(db_path: Path, conn, store, embedder) -> None:
-    sock_path = socket_path_for(db_path)
-    if sock_path.exists():
+    sock_path = _prepare_socket_path(db_path)
+    if sock_path.exists() or sock_path.is_symlink():
+        if not sock_path.is_socket():
+            raise RuntimeError(f"refusing to remove non-socket at {sock_path}")
         sock_path.unlink()
 
     class Handler(socketserver.StreamRequestHandler):
@@ -525,7 +561,7 @@ def serve(db_path: Path, conn, store, embedder) -> None:
 
     # Warm the model before accepting connections.
     embedder.embed_queries(["warmup"])
-    server = socketserver.UnixStreamServer(str(sock_path), Handler)
+    server = _bind_private_unix_server(sock_path, Handler)
     print(f"fidx daemon listening on {sock_path} (pid {os.getpid()})", file=sys.stderr)
     try:
         server.serve_forever()

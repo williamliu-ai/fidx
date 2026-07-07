@@ -27,6 +27,7 @@ bench/results/
 CLAUDE.md
 AGENTS.md
 .claude/
+.playwright-mcp/
 docs/claude-*/
 
 # Launch assets kept out of source control unless promoted to public content

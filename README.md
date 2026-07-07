@@ -133,6 +133,8 @@ fidx search "..."     # all searches now take milliseconds
 ```
 
 The CLI uses the daemon automatically when it is running; `--no-daemon` opts out.
+The daemon socket is created in a per-user runtime/cache directory with
+owner-only permissions.
 
 ### Choosing result truncation
 
@@ -281,8 +283,7 @@ docid or `collection/path`.
     }
   ],
   "diagnostics": {
-    "active_docs": 1234,
-    "known_collections": ["docs", "memory"],
+    "index_empty": false,
     "unknown_collections": [],
     "filters": {
       "raw_count": 5,
@@ -314,10 +315,11 @@ docid or `collection/path`.
 When `results` is empty, the envelope still includes a `status`,
 `diagnostics.filters`, `summary.truncation_advice` and `next_actions`. Agents
 should read those before retrying: remove `--min-score` if it filtered all
-candidates, drop or fix a bad collection scope, disable truncation if it
-removed everything, use `--mode lexical` for exact names/paths/errors, use
-`--mode vector` for synonym-heavy wording, or run `fidx collection add` +
-`fidx index` if the index has no documents.
+candidates, drop or fix a bad collection scope listed in
+`diagnostics.unknown_collections`, disable truncation if it removed everything,
+use `--mode lexical` for exact names/paths/errors, use `--mode vector` for
+synonym-heavy wording, or run `fidx collection add` + `fidx index` if
+`diagnostics.index_empty` is true.
 
 ## Verifying your install
 

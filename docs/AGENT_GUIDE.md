@@ -107,6 +107,8 @@ these fields before retrying:
 - `summary.confidence`: `none`, `narrow`, `mixed` or `strong`
 - `summary.truncation_advice`: whether to keep `off`, use `knee` or use
   `calibrated`
+- `diagnostics.index_empty`: whether there are no indexed documents
+- `diagnostics.unknown_collections`: requested `-c` scopes that do not exist
 - `diagnostics.filters`: whether `--min-score` or truncation removed candidates
 - `diagnostics.calibration`: whether calibrated truncation has a stored floor
 - `next_actions`: runnable follow-up commands
@@ -114,7 +116,7 @@ these fields before retrying:
 If `results` is empty:
 
 - `empty_index` means add a collection and run `fidx index`
-- unknown collections mean drop or fix the `-c` scope
+- entries in `diagnostics.unknown_collections` mean drop or fix the `-c` scope
 - candidates dropped by `--min-score` mean retry without `--min-score`
 - candidates dropped by truncation mean retry without truncation
 - no raw candidates means try broader terms, `--mode lexical` for exact tokens
