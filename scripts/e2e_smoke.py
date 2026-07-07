@@ -101,6 +101,13 @@ def norm(p: str) -> str:
     return p.replace("\\", "/")
 
 
+def search_results(stdout: str) -> list[dict]:
+    payload = json.loads(stdout or "[]")
+    if isinstance(payload, dict):
+        return payload.get("results", [])
+    return payload
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", type=int, default=1000)
@@ -154,7 +161,7 @@ def main() -> int:
         lat.append((time.time() - t) * 1000)
         if r.returncode != 0:
             print("FAIL search:\n", r.stderr, file=sys.stderr); return 1
-        paths = [norm(x.get("path", "")) for x in json.loads(r.stdout or "[]")]
+        paths = [norm(x.get("path", "")) for x in search_results(r.stdout)]
         if any(p == norm(q["expected"]) or p.endswith("/" + norm(q["expected"]).split("/", 1)[-1])
                for p in paths):
             hits += 1

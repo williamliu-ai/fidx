@@ -14,6 +14,7 @@ fails fast in unit CI too.
 """
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -29,3 +30,13 @@ def test_corpus_manifest_matches_pinned_sha():
     assert sha == pinned, f"corpus drift: {sha} != pinned {pinned}"
     assert len(queries) == 40
     assert all(q["expected"].startswith("e2e/") for q in queries)
+
+
+def test_search_results_accepts_agent_envelope():
+    payload = {"schema": "fidx.search.v2", "results": [{"path": "e2e/doc0001.md"}]}
+    assert e2e_smoke.search_results(json.dumps(payload)) == payload["results"]
+
+
+def test_search_results_accepts_legacy_array():
+    payload = [{"path": "e2e/doc0001.md"}]
+    assert e2e_smoke.search_results(json.dumps(payload)) == payload
