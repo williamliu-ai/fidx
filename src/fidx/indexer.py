@@ -14,6 +14,7 @@ with their chunks and vectors.
 
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 import hashlib
 import json
 import sqlite3
@@ -38,14 +39,52 @@ class IndexStats:
     errors: list[str] = field(default_factory=list)
 
 
-def add_collection(conn: sqlite3.Connection, name: str, root: Path, globs: list[str] | None = None) -> None:
+@dataclass(frozen=True)
+class CollectionGlobs:
+    include: list[str]
+    exclude: list[str]
+
+
+def _glob_list(value, default: list[str] | None = None) -> list[str]:
+    if value is None:
+        return list(default or [])
+    if not isinstance(value, list) or any(not isinstance(pattern, str) for pattern in value):
+        raise ValueError("collection globs must be lists of strings")
+    return list(value)
+
+
+def _decode_collection_globs(value) -> CollectionGlobs:
+    if isinstance(value, list):
+        include = _glob_list(value, list(DEFAULT_GLOBS)) or list(DEFAULT_GLOBS)
+        return CollectionGlobs(include=include, exclude=[])
+    if isinstance(value, dict):
+        include = _glob_list(value.get("include"), list(DEFAULT_GLOBS)) or list(DEFAULT_GLOBS)
+        exclude = _glob_list(value.get("exclude"), [])
+        return CollectionGlobs(include=include, exclude=exclude)
+    raise ValueError("collection globs must be a JSON list or object")
+
+
+def _encode_collection_globs(globs: list[str] | None, exclude_globs: list[str] | None) -> str:
+    return json.dumps({
+        "include": list(globs or DEFAULT_GLOBS),
+        "exclude": list(exclude_globs or []),
+    })
+
+
+def add_collection(
+    conn: sqlite3.Connection,
+    name: str,
+    root: Path,
+    globs: list[str] | None = None,
+    exclude_globs: list[str] | None = None,
+) -> None:
     root = root.expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"collection root {root} is not a directory")
     conn.execute(
         "INSERT INTO collections(name, root, globs) VALUES (?, ?, ?) "
         "ON CONFLICT(name) DO UPDATE SET root = excluded.root, globs = excluded.globs",
-        (name, str(root), json.dumps(globs or DEFAULT_GLOBS)),
+        (name, str(root), _encode_collection_globs(globs, exclude_globs)),
     )
     conn.commit()
 
@@ -67,12 +106,44 @@ def _delete_documents(conn: sqlite3.Connection, store, doc_ids: list[int]) -> No
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
 
-def _scan_files(root: Path, globs: list[str]) -> dict[str, Path]:
+def _normalize_glob_path(value: str) -> str:
+    return value.replace("\\", "/")
+
+
+def _path_glob_matches(relpath: str, pattern: str) -> bool:
+    rel_parts = tuple(part for part in _normalize_glob_path(relpath).split("/") if part)
+    pattern_parts = tuple(part for part in _normalize_glob_path(pattern).split("/") if part)
+
+    def match(rel_index: int, pattern_index: int) -> bool:
+        if pattern_index == len(pattern_parts):
+            return rel_index == len(rel_parts)
+        current = pattern_parts[pattern_index]
+        if current == "**":
+            if match(rel_index, pattern_index + 1):
+                return True
+            return rel_index < len(rel_parts) and match(rel_index + 1, pattern_index)
+        return (
+            rel_index < len(rel_parts)
+            and fnmatchcase(rel_parts[rel_index], current)
+            and match(rel_index + 1, pattern_index + 1)
+        )
+
+    return match(0, 0)
+
+
+def _matches_any_glob(relpath: str, globs: list[str]) -> bool:
+    return any(_path_glob_matches(relpath, pattern) for pattern in globs)
+
+
+def _scan_files(root: Path, globs: list[str], exclude_globs: list[str] | None = None) -> dict[str, Path]:
     files: dict[str, Path] = {}
+    excludes = exclude_globs or []
     for pattern in globs:
         for path in root.glob(pattern):
             if path.is_file():
-                files[str(path.relative_to(root))] = path
+                rel = path.relative_to(root).as_posix()
+                if not _matches_any_glob(rel, excludes):
+                    files[rel] = path
     return files
 
 
@@ -81,9 +152,10 @@ def sync_collection(conn: sqlite3.Connection, store, name: str, stats: IndexStat
     row = conn.execute("SELECT root, globs FROM collections WHERE name = ?", (name,)).fetchone()
     if row is None:
         raise KeyError(f"unknown collection {name!r}")
-    root, globs = Path(row["root"]), json.loads(row["globs"])
+    root = Path(row["root"])
+    globs = _decode_collection_globs(json.loads(row["globs"]))
 
-    on_disk = _scan_files(root, globs)
+    on_disk = _scan_files(root, globs.include, globs.exclude)
     in_db = {
         r["relpath"]: r
         for r in conn.execute(

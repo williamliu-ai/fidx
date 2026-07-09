@@ -101,11 +101,14 @@ def collection() -> None:
 @click.option("--name", required=True, help="Collection name (used for scoping searches).")
 @click.option("--glob", "globs", multiple=True, help="Glob pattern(s) relative to root; repeatable. "
               f"Default: {' '.join(config.DEFAULT_GLOBS)}")
+@click.option("--exclude-glob", "exclude_globs", multiple=True,
+              help="Glob pattern(s) to skip after includes are matched; repeatable.")
 @click.pass_context
-def collection_add(ctx: click.Context, root: Path, name: str, globs: tuple[str, ...]) -> None:
+def collection_add(ctx: click.Context, root: Path, name: str, globs: tuple[str, ...],
+                   exclude_globs: tuple[str, ...]) -> None:
     """Register ROOT as a collection. Run `fidx index` afterwards."""
     conn, _ = open_index(ctx.obj["db_path"])
-    indexer.add_collection(conn, name, root, list(globs) or None)
+    indexer.add_collection(conn, name, root, list(globs) or None, list(exclude_globs) or None)
     click.echo(f"collection {name!r} -> {root}")
 
 

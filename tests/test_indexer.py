@@ -5,6 +5,8 @@
 # AI-Attribution-Policy: AI_ATTRIBUTION.md
 # AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
+import json
+
 from fidx import indexer
 
 
@@ -75,6 +77,73 @@ def test_remove_collection_before_any_embed(tmp_path, corpus_dir):
     indexer.sync_collection(conn, NullStore(), "notes", stats)
     indexer.remove_collection(conn, NullStore(), "notes")
     assert conn.execute("SELECT count(*) AS n FROM documents").fetchone()["n"] == 0
+
+
+def test_add_collection_stores_include_and_exclude_globs(conn, corpus_dir):
+    indexer.add_collection(
+        conn,
+        "notes",
+        corpus_dir,
+        globs=["**/*.md"],
+        exclude_globs=[".obsidian/**", ".trash/**"],
+    )
+
+    raw = conn.execute("SELECT globs FROM collections WHERE name = 'notes'").fetchone()["globs"]
+    assert json.loads(raw) == {
+        "include": ["**/*.md"],
+        "exclude": [".obsidian/**", ".trash/**"],
+    }
+
+
+def test_sync_collection_applies_exclude_globs_with_exclude_winning(conn, store, corpus_dir):
+    (corpus_dir / "journal.md").write_text("# Journal\n\nDaily note.")
+    (corpus_dir / ".obsidian" / "plugins" / "fidx").mkdir(parents=True)
+    (corpus_dir / ".obsidian" / "plugins" / "fidx" / "README.md").write_text("# Plugin")
+    (corpus_dir / ".trash").mkdir()
+    (corpus_dir / ".trash" / "old.md").write_text("# Old")
+    (corpus_dir / ".git").mkdir()
+    (corpus_dir / ".git" / "ignored.md").write_text("# Ignored")
+
+    stats = indexer.IndexStats()
+    indexer.add_collection(
+        conn,
+        "notes",
+        corpus_dir,
+        globs=["**/*.md"],
+        exclude_globs=[".obsidian/**", ".trash/**", ".git/**", "recipes.md"],
+    )
+    indexer.sync_collection(conn, store, "notes", stats)
+
+    relpaths = {
+        row["relpath"]
+        for row in conn.execute("SELECT relpath FROM documents ORDER BY relpath")
+    }
+    assert relpaths == {"auth.md", "deploy.md", "journal.md"}
+    assert stats.added == 3
+
+
+def test_sync_collection_accepts_legacy_list_globs(conn, store, corpus_dir):
+    conn.execute(
+        "INSERT INTO collections(name, root, globs) VALUES (?, ?, ?)",
+        ("legacy", str(corpus_dir), json.dumps(["**/*.md"])),
+    )
+    conn.commit()
+
+    stats = indexer.IndexStats()
+    indexer.sync_collection(conn, store, "legacy", stats)
+
+    relpaths = {
+        row["relpath"]
+        for row in conn.execute("SELECT relpath FROM documents ORDER BY relpath")
+    }
+    assert relpaths == {"auth.md", "deploy.md", "recipes.md"}
+    assert stats.added == 3
+
+
+def test_glob_matching_uses_path_glob_semantics():
+    assert indexer._matches_any_glob("folder\\private.md", ["folder/*.md"])
+    assert indexer._matches_any_glob("auth.md", ["**/*.md"])
+    assert not indexer._matches_any_glob("folder/private.md", ["*.md"])
 
 
 def test_repair_orphan_chunks(conn, store, embedder, corpus_dir):
