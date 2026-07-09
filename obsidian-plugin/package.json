@@ -1,0 +1,27 @@
+{
+  "name": "fidx-obsidian-plugin",
+  "version": "0.1.0",
+  "description": "Desktop-only Obsidian plugin for searching a vault with fidx.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "obsidian",
+    "fidx",
+    "semantic-search",
+    "local-first"
+  ],
+  "license": "MIT AND LicenseRef-AI-Idea-Attribution-1.0",
+  "devDependencies": {
+    "@types/node": "^22.15.17",
+    "esbuild": "0.25.5",
+    "obsidian": "latest",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "private": true
+}

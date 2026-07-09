@@ -32,3 +32,10 @@ docs/claude-*/
 
 # Launch assets kept out of source control unless promoted to public content
 launch-assets/
+
+# Obsidian plugin generated artifacts
+obsidian-plugin/node_modules/
+obsidian-plugin/main.js
+obsidian-plugin/main.js.map
+obsidian-plugin/coverage/
+obsidian-plugin/.vitest/
