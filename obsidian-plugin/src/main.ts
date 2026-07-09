@@ -6,9 +6,13 @@
 // AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
 import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { accessSync, constants as fsConstants, existsSync, statSync } from "node:fs";
 
 import { PLUGIN_ID } from "./constants";
+import { FidxService } from "./fidx-service";
+import { FidxPluginController, formatGlobList, parseGlobList } from "./plugin-controller";
 import { createDefaultSettings, FidxSettings } from "./settings";
+import { SettingsValidationEnv, validateFidxSettings } from "./settings-validation";
 
 type AdapterWithBasePath = {
   basePath?: string;
@@ -26,27 +30,71 @@ export function getVaultBasePath(app: App): string {
   return "";
 }
 
+function settingsValidationEnv(): SettingsValidationEnv {
+  return {
+    fileExists: (path) => existsSync(path),
+    isDirectory: (path) => {
+      try {
+        return statSync(path).isDirectory();
+      } catch {
+        return false;
+      }
+    },
+    isExecutable: (path) => {
+      try {
+        accessSync(path, fsConstants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
 export default class FidxSearchPlugin extends Plugin {
   settings: FidxSettings = createDefaultSettings("");
+  controller!: FidxPluginController;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.controller = new FidxPluginController({
+      settings: this.settings,
+      service: new FidxService(this.settings),
+      saveSettings: async () => this.saveSettings(),
+      notify: (message) => new Notice(message),
+      validateSettings: () => validateFidxSettings(
+        this.settings,
+        settingsValidationEnv(),
+        getVaultBasePath(this.app),
+      ),
+    });
     this.addSettingTab(new FidxSettingTab(this.app, this));
 
     this.addCommand({
       id: "doctor",
-      name: "Run fidx doctor",
-      callback: () => new Notice("fidx doctor integration is not implemented yet."),
+      name: "Run doctor",
+      callback: () => {
+        void this.controller.runDoctor();
+      },
     });
     this.addCommand({
       id: "register-vault",
       name: "Register vault collection",
-      callback: () => new Notice("fidx collection registration is not implemented yet."),
+      callback: () => {
+        void this.controller.registerCollection();
+      },
     });
     this.addCommand({
       id: "index-vault",
-      name: "Index vault",
-      callback: () => new Notice("fidx indexing is not implemented yet."),
+      name: "Index vault collection",
+      callback: () => {
+        void this.controller.runIndex();
+      },
+    });
+    this.addCommand({
+      id: "cancel-index",
+      name: "Cancel index",
+      callback: () => this.controller.cancelIndex(),
     });
     this.addCommand({
       id: "search-vault",
@@ -106,6 +154,59 @@ class FidxSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.collectionName)
         .onChange(async (value) => {
           this.plugin.settings.collectionName = value.trim();
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Indexed root")
+      .setDesc("Absolute vault path to register and index.")
+      .addText((text) => text
+        .setValue(this.plugin.settings.indexedRoot)
+        .onChange(async (value) => {
+          this.plugin.settings.indexedRoot = value.trim();
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Include globs")
+      .setDesc("One collection include glob per line.")
+      .addTextArea((text) => text
+        .setValue(formatGlobList(this.plugin.settings.includeGlobs))
+        .onChange(async (value) => {
+          this.plugin.settings.includeGlobs = parseGlobList(value);
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Exclude globs")
+      .setDesc("One collection exclude glob per line.")
+      .addTextArea((text) => text
+        .setValue(formatGlobList(this.plugin.settings.excludeGlobs))
+        .onChange(async (value) => {
+          this.plugin.settings.excludeGlobs = parseGlobList(value);
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Result limit")
+      .setDesc("Maximum search results to request from fidx.")
+      .addText((text) => text
+        .setValue(String(this.plugin.settings.resultLimit))
+        .onChange(async (value) => {
+          const parsed = Number.parseInt(value, 10);
+          if (Number.isInteger(parsed)) {
+            this.plugin.settings.resultLimit = parsed;
+            await this.plugin.saveSettings();
+          }
+        }));
+
+    new Setting(containerEl)
+      .setName("Truncate policy")
+      .setDesc("Empty, off, or knee.")
+      .addText((text) => text
+        .setValue(this.plugin.settings.truncatePolicy)
+        .onChange(async (value) => {
+          this.plugin.settings.truncatePolicy = value.trim();
           await this.plugin.saveSettings();
         }));
   }

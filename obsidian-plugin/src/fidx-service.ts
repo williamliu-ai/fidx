@@ -165,8 +165,8 @@ export class FidxService {
     return this.runner.runBuffered(buildCollectionAddCommand(this.settings));
   }
 
-  index(onOutput?: (chunk: FidxOutputChunk) => void): Promise<FidxRunResult> {
-    return this.runner.runStreaming(buildIndexCommand(this.settings), onOutput);
+  index(onOutput?: (chunk: FidxOutputChunk) => void, signal?: AbortSignal): Promise<FidxRunResult> {
+    return this.runner.runStreaming(buildIndexCommand(this.settings), onOutput, signal);
   }
 
   search(query: string): Promise<FidxRunResult> {

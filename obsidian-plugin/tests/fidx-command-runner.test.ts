@@ -158,4 +158,56 @@ describe("FidxCommandRunner streaming execution", () => {
     expect(result.category).toBe("output-limit");
     expect(result.ok).toBe(false);
   });
+
+  it("cancels a streaming command through an AbortSignal", async () => {
+    const controller = new AbortController();
+    const running = runner.runStreaming(
+      nodeCommand("setInterval(() => process.stdout.write('.'), 5)", { timeoutMs: 0 }),
+      undefined,
+      controller.signal,
+    );
+
+    controller.abort();
+    const result = await running;
+
+    expect(result.ok).toBe(false);
+    expect(result.category).toBe("cancelled");
+  });
+
+  it("escalates cancellation when a streaming command ignores SIGTERM", async () => {
+    const controller = new AbortController();
+    let markReady!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      markReady = resolve;
+    });
+    const startedAt = Date.now();
+    const running = runner.runStreaming(
+      nodeCommand(`
+        process.on('SIGTERM', () => {});
+        process.stdout.write('ready\\n');
+        setInterval(() => process.stdout.write('.'), 20);
+        setTimeout(() => process.exit(0), 1000);
+      `, {
+        timeoutMs: 0,
+        cancelKillAfterMs: 50,
+      }),
+      (chunk) => {
+        if (chunk.text.includes("ready")) {
+          markReady();
+        }
+      },
+      controller.signal,
+    );
+
+    await ready;
+    controller.abort();
+    const result = await Promise.race([
+      running,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cancel did not settle promptly")), 500)),
+    ]);
+
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(result.ok).toBe(false);
+    expect(result.category).toBe("cancelled");
+  });
 });

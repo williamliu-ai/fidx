@@ -14,6 +14,7 @@ export type FidxRunCategory =
   | "timeout"
   | "output-limit"
   | "nonzero-exit"
+  | "cancelled"
   | "spawn-error";
 
 export interface FidxCommand {
@@ -22,6 +23,7 @@ export interface FidxCommand {
   cwd?: string;
   timeoutMs: number;
   maxOutputBytes: number;
+  cancelKillAfterMs?: number;
 }
 
 export interface FidxOutputChunk {
@@ -52,6 +54,8 @@ function notFoundMessage(executable: string): string {
 function outputLimitMessage(maxOutputBytes: number): string {
   return `fidx produced more than ${maxOutputBytes} bytes of output.`;
 }
+
+const DEFAULT_CANCEL_KILL_AFTER_MS = 2_000;
 
 function result(
   category: FidxRunCategory,
@@ -121,6 +125,7 @@ export class FidxCommandRunner {
   runStreaming(
     command: FidxCommand,
     onOutput?: (chunk: FidxOutputChunk) => void,
+    signal?: AbortSignal,
   ): Promise<FidxRunResult> {
     return new Promise((resolve) => {
       const child = spawn(command.executable, command.args, {
@@ -131,9 +136,11 @@ export class FidxCommandRunner {
       let stderr = "";
       let totalBytes = 0;
       let timedOut = false;
+      let cancelled = false;
       let outputLimited = false;
       let settled = false;
       let timer: NodeJS.Timeout | undefined;
+      let cancelKillTimer: NodeJS.Timeout | undefined;
       const stdoutDecoder = new StringDecoder("utf8");
       const stderrDecoder = new StringDecoder("utf8");
 
@@ -145,6 +152,10 @@ export class FidxCommandRunner {
         if (timer) {
           clearTimeout(timer);
         }
+        if (cancelKillTimer) {
+          clearTimeout(cancelKillTimer);
+        }
+        signal?.removeEventListener("abort", abort);
         resolve(value);
       };
 
@@ -186,6 +197,24 @@ export class FidxCommandRunner {
       };
 
       armTimer();
+      const abort = () => {
+        if (settled) {
+          return;
+        }
+        cancelled = true;
+        child.kill();
+        if (!cancelKillTimer) {
+          cancelKillTimer = setTimeout(() => {
+            if (!settled) {
+              child.kill("SIGKILL");
+            }
+          }, command.cancelKillAfterMs ?? DEFAULT_CANCEL_KILL_AFTER_MS);
+        }
+      };
+      if (signal?.aborted) {
+        abort();
+      }
+      signal?.addEventListener("abort", abort, { once: true });
       child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
       child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
       child.on("error", (error: NodeJS.ErrnoException) => {
@@ -202,6 +231,12 @@ export class FidxCommandRunner {
       child.on("close", (code) => {
         emitText("stdout", stdoutDecoder.end());
         emitText("stderr", stderrDecoder.end());
+        if (cancelled) {
+          settle(result("cancelled", stdout, stderr, {
+            errorMessage: "fidx command was cancelled.",
+          }));
+          return;
+        }
         if (timedOut) {
           settle(result("timeout", stdout, stderr, {
             timedOut: true,
