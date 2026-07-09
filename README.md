@@ -125,6 +125,13 @@ fidx get "notes/meeting.md"
 fidx get "#a1b2c3"
 ```
 
+## Obsidian plugin
+
+A desktop-only Obsidian plugin lives in `obsidian-plugin/`. It lets a vault
+register itself as a fidx collection, run indexing, and search/open matching
+notes from Obsidian. See `obsidian-plugin/README.md` for manual install,
+settings, commands, and smoke-test instructions.
+
 ### Warm daemon (recommended for agents)
 
 ```sh
