@@ -5,14 +5,17 @@
 // AI-Attribution-Policy: ../../AI_ATTRIBUTION.md
 // AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
 import { accessSync, constants as fsConstants, existsSync, statSync } from "node:fs";
 
 import { PLUGIN_ID } from "./constants";
 import { FidxService } from "./fidx-service";
 import { FidxPluginController, formatGlobList, parseGlobList } from "./plugin-controller";
+import { FidxSearchController } from "./search-controller";
+import { FidxSearchModal } from "./search-modal";
 import { createDefaultSettings, FidxSettings } from "./settings";
 import { SettingsValidationEnv, validateFidxSettings } from "./settings-validation";
+import { VaultFileLookup, VaultPathMapper } from "./vault-path-mapper";
 
 type AdapterWithBasePath = {
   basePath?: string;
@@ -47,6 +50,15 @@ function settingsValidationEnv(): SettingsValidationEnv {
       } catch {
         return false;
       }
+    },
+  };
+}
+
+function vaultFileLookup(app: App): VaultFileLookup {
+  return {
+    getFileByPath: (path) => {
+      const file = app.vault.getAbstractFileByPath(path);
+      return file instanceof TFile ? file : null;
     },
   };
 }
@@ -99,7 +111,7 @@ export default class FidxSearchPlugin extends Plugin {
     this.addCommand({
       id: "search-vault",
       name: "Search vault",
-      callback: () => new Notice("fidx search is not implemented yet."),
+      callback: () => this.openSearchModal(),
     });
   }
 
@@ -110,6 +122,24 @@ export default class FidxSearchPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  openSearchModal(): void {
+    const controller = new FidxSearchController({
+      settings: this.settings,
+      service: new FidxService(this.settings),
+      mapper: new VaultPathMapper(getVaultBasePath(this.app), vaultFileLookup(this.app)),
+      notify: (message) => new Notice(message),
+      openFile: async (file) => {
+        await this.app.workspace.getLeaf(false).openFile(file as TFile);
+      },
+      validateSettings: () => validateFidxSettings(
+        this.settings,
+        settingsValidationEnv(),
+        getVaultBasePath(this.app),
+      ),
+    });
+    new FidxSearchModal(this.app, controller).open();
   }
 }
 

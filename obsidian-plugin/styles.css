@@ -10,3 +10,58 @@
 .fidx-search-settings input[type="text"] {
   width: 100%;
 }
+
+.fidx-search-query {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fidx-search-query .setting-item-control,
+.fidx-search-query input {
+  flex: 1;
+}
+
+.fidx-search-status {
+  margin-top: 12px;
+  color: var(--text-muted);
+}
+
+.fidx-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.fidx-search-result {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  text-align: left;
+}
+
+.fidx-search-result:hover,
+.fidx-search-result:focus {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+}
+
+.fidx-search-result-title {
+  font-weight: 600;
+}
+
+.fidx-search-result-path,
+.fidx-search-result-meta {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.fidx-search-result-snippet {
+  margin-top: 6px;
+  color: var(--text-normal);
+}
