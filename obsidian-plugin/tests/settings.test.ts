@@ -31,6 +31,7 @@ describe("default settings", () => {
     expect(settings.searchTimeoutMs).toBe(30000);
     expect(settings.indexInactivityTimeoutMs).toBe(0);
     expect(settings.maxOutputBytes).toBeGreaterThan(0);
+    expect(settings.allowHiddenDirectoryIndexing).toBe(false);
   });
 
   it("returns fresh glob arrays for each settings object", () => {

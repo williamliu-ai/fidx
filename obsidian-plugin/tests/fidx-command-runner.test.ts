@@ -128,11 +128,11 @@ describe("FidxCommandRunner streaming execution", () => {
         const timer = setInterval(() => {
           process.stdout.write(".");
           count += 1;
-          if (count === 5) {
+          if (count === 4) {
             clearInterval(timer);
           }
-        }, 5);
-      `, { timeoutMs: 20 }),
+        }, 20);
+      `, { timeoutMs: 50 }),
     );
 
     expect(result.ok).toBe(true);

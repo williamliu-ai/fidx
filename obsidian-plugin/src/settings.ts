@@ -6,6 +6,7 @@
 // AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
 import {
+  DEFAULT_ALLOW_HIDDEN_DIRECTORY_INDEXING,
   DEFAULT_COLLECTION_NAME,
   DEFAULT_EXCLUDE_GLOBS,
   DEFAULT_INCLUDE_GLOBS,
@@ -30,6 +31,7 @@ export interface FidxSettings {
   searchTimeoutMs: number;
   indexInactivityTimeoutMs: number;
   maxOutputBytes: number;
+  allowHiddenDirectoryIndexing: boolean;
 }
 
 export function normalizeSettingsPath(value: string): string {
@@ -64,5 +66,6 @@ export function createDefaultSettings(vaultRoot: string): FidxSettings {
     searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
     indexInactivityTimeoutMs: DEFAULT_INDEX_INACTIVITY_TIMEOUT_MS,
     maxOutputBytes: DEFAULT_MAX_OUTPUT_BYTES,
+    allowHiddenDirectoryIndexing: DEFAULT_ALLOW_HIDDEN_DIRECTORY_INDEXING,
   };
 }

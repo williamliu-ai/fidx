@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_COLLECTION_NAME,
+  DEFAULT_ALLOW_HIDDEN_DIRECTORY_INDEXING,
   DEFAULT_EXCLUDE_GLOBS,
   DEFAULT_INCLUDE_GLOBS,
   DEFAULT_RESULT_LIMIT,
@@ -25,6 +26,10 @@ describe("plugin constants", () => {
     expect(DEFAULT_INCLUDE_GLOBS).toEqual(["**/*.md", "**/*.markdown", "**/*.txt"]);
     expect(DEFAULT_COLLECTION_NAME).toBe("fidx-search-vault");
     expect(DEFAULT_RESULT_LIMIT).toBe(10);
+  });
+
+  it("keeps hidden-directory indexing opt-out disabled by default", () => {
+    expect(DEFAULT_ALLOW_HIDDEN_DIRECTORY_INDEXING).toBe(false);
   });
 
   it("uses the fidx-search identity", () => {
