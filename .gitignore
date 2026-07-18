@@ -39,3 +39,6 @@ obsidian-plugin/main.js
 obsidian-plugin/main.js.map
 obsidian-plugin/coverage/
 obsidian-plugin/.vitest/
+
+# Private, local-only benchmarks (never shipped in the public archive cut)
+bench/private/
