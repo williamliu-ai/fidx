@@ -110,7 +110,7 @@ class FastEmbedder:
                parallel: int | None = None) -> np.ndarray:
         model = self._ensure_model()
         texts = list(texts)
-        if parallel is not None:
+        if parallel is not None and parallel != 0 and parallel > 1:
             # Data-parallel workers rebuild the model — and its uncapped
             # tokenizer — from the catalogue, so the cap must be cut into
             # the text itself before it is handed to fastembed.
@@ -127,8 +127,11 @@ class FastEmbedder:
         return vecs / norms
 
     def embed_docs(self, texts: Sequence[str]) -> np.ndarray:
+        p = self._parallel
+        if p is not None and p <= 1:
+            p = None  # run inline, no forkserver
         return self._embed([self.profile.doc_prefix + t for t in texts],
-                           parallel=self._parallel)
+                           parallel=p)
 
     def embed_queries(self, texts: Sequence[str]) -> np.ndarray:
         return self._embed([self.profile.query_prefix + t for t in texts])
