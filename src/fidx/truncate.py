@@ -142,9 +142,10 @@ def _source(results: list[Result], p: list[float], mode: str) -> list[Result]:
         return [r for r in results
                 if ("vector" in r.sources and r.sources["vector"] >= vmin)
                 or ("lexical" in r.sources and r.sources["lexical"] >= lmin)]
-    # single-arm modes: r.score IS that arm's raw score (cosine / BM25-norm)
+    # A reranked result's score is a sigmoid; its original arm score remains
+    # in sources. For ordinary search, sources is empty and r.score is the arm.
     floor = p[1] if (mode == "lexical" and len(p) > 1) else p[0]
-    return [r for r in results if r.score >= floor]
+    return [r for r in results if r.sources.get(mode, r.score) >= floor]
 
 
 _METHODS = {
