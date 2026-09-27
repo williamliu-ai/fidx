@@ -396,6 +396,11 @@ When `summary.budget` is present, fields outside this floor may be absent;
 consumers of `fidx.search.v2` should tolerate absent optional fields and
 ignore unknown additive fields.
 
+After a successful `fidx index`, JSON search results may include
+`summary.index` with the age of that completed run and a `stale_hint` from a
+deterministic 20-file sample. A clean sample is not a full-corpus freshness
+guarantee; see the [agent guide](docs/AGENT_GUIDE.md) for interpretation.
+
 ## Verifying your install
 
 ```sh
