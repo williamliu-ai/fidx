@@ -50,6 +50,17 @@ class Result:
     line_end: int | None = None
 
 
+@dataclass
+class SearchTrace:
+    """Opt-in candidate evidence; fetched-pool counts are lower bounds."""
+
+    mode: str = "hybrid"
+    lexical: tuple[Result, ...] = ()
+    vector: tuple[Result, ...] = ()
+    fused_pool: tuple[Result, ...] = ()
+    count_relation: str = "gte"
+
+
 _TOKEN_RE = re.compile(r"[\w']+", re.UNICODE)
 
 
@@ -219,11 +230,18 @@ def _attach_chunk_snippets(conn: sqlite3.Connection, results: list[Result],
 
 
 def search_hybrid(conn: sqlite3.Connection, store, embedder: Embedder, query: str,
-                  collections: list[str] | None = None, limit: int = 10) -> list[Result]:
+                  collections: list[str] | None = None, limit: int = 10,
+                  *, trace: SearchTrace | None = None) -> list[Result]:
     lex = search_lexical(conn, query, collections)
     vec = search_vector(conn, store, embedder, query, collections)
     lex_weight = LEXICAL_AND_WEIGHT if (lex and lex[0].tier in ("phrase", "and")) else LEXICAL_WEIGHT
-    return rrf_fuse([("lexical", lex_weight, lex), ("vector", VECTOR_WEIGHT, vec)], limit)
+    ranked_lists = [("lexical", lex_weight, lex), ("vector", VECTOR_WEIGHT, vec)]
+    if trace is None:
+        return rrf_fuse(ranked_lists, limit)
+    trace.lexical = tuple(lex)
+    trace.vector = tuple(vec)
+    trace.fused_pool = tuple(rrf_fuse(ranked_lists, len({r.doc_id for r in lex + vec})))
+    return list(trace.fused_pool[:limit])
 
 
 def rrf_fuse(ranked_lists: list[tuple[str, float, list[Result]]], limit: int) -> list[Result]:

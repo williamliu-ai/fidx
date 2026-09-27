@@ -519,9 +519,16 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
     }
 
 
-def run_search(conn, store, embedder, req: dict) -> dict:
+def run_search(conn, store, embedder, req: dict,
+               *, trace: searchmod.SearchTrace | None = None) -> dict:
     query = req["query"]
     mode = req.get("mode", "hybrid")
+    if trace is not None:
+        trace.mode = mode
+        trace.lexical = ()
+        trace.vector = ()
+        trace.fused_pool = ()
+        trace.count_relation = "gte"
     collections = list(req.get("collections") or [])
     search_collections = collections or None
     limit = int(req.get("limit", 10))
@@ -532,10 +539,21 @@ def run_search(conn, store, embedder, req: dict) -> dict:
         raw = []
     elif mode == "lexical":
         raw = searchmod.search_lexical(conn, query, search_collections, limit)
+        if trace is not None:
+            trace.lexical = tuple(raw)
+            trace.fused_pool = tuple(raw)
     elif mode == "vector":
         raw = searchmod.search_vector(conn, store, embedder, query, search_collections, limit)
+        if trace is not None:
+            trace.vector = tuple(raw)
+            trace.fused_pool = tuple(raw)
     elif mode == "hybrid":
-        raw = searchmod.search_hybrid(conn, store, embedder, query, search_collections, limit)
+        if trace is None:
+            raw = searchmod.search_hybrid(
+                conn, store, embedder, query, search_collections, limit)
+        else:
+            raw = searchmod.search_hybrid(
+                conn, store, embedder, query, search_collections, limit, trace=trace)
     else:
         raise ValueError(f"unknown mode {mode!r}")
     min_score = req.get("min_score")
