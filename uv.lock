@@ -242,6 +242,9 @@ dev = [
 duckdb = [
     { name = "duckdb" },
 ]
+rerank = [
+    { name = "fastembed" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -249,12 +252,13 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'dev'", specifier = ">=1.1,<2" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1,<2" },
     { name = "fastembed", specifier = ">=0.6,<0.9" },
+    { name = "fastembed", marker = "extra == 'rerank'", specifier = ">=0.8,<0.9" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "onnxruntime", specifier = ">=1.17,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0,<10" },
     { name = "sqlite-vec", specifier = ">=0.1.6,<0.2" },
 ]
-provides-extras = ["dev", "duckdb"]
+provides-extras = ["dev", "duckdb", "rerank"]
 
 [[package]]
 name = "fsspec"

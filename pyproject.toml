@@ -52,6 +52,9 @@ fidx = "fidx.cli:main"
 duckdb = [
     "duckdb>=1.1,<2",
 ]
+rerank = [
+    "fastembed>=0.8,<0.9",
+]
 dev = [
     "pytest>=8.0,<10",
     "duckdb>=1.1,<2",

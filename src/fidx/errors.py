@@ -13,6 +13,7 @@ import sqlite3
 from enum import IntEnum
 
 from .embedder import ModelUnavailableError
+from .rerank_models import RerankCapabilityError, RerankModelUnavailableError
 
 
 class ExitCode(IntEnum):
@@ -94,6 +95,20 @@ def classify(exc: Exception) -> tuple[str, int, list[dict], list[dict] | None]:
     if isinstance(exc, FidxError):
         candidates = exc.candidates if isinstance(exc, AmbiguousReference) else None
         return exc.status, int(STATUS_CODES[exc.status]), exc.next_actions, candidates
+    if isinstance(exc, RerankCapabilityError):
+        action = {
+            "intent": "install_rerank",
+            "reason": "Install a FastEmbed version with cross-encoder support.",
+            "command": ["python", "-m", "pip", "install", "fmdidx[rerank]"],
+        }
+        return "error", int(ExitCode.ERROR), [action], None
+    if isinstance(exc, RerankModelUnavailableError):
+        action = {
+            "intent": "fetch_model",
+            "reason": "Download the selected reranker model before searching offline.",
+            "command": ["fidx", "models", "fetch", "rerank", "--model", exc.model_name],
+        }
+        return "model_missing", int(ExitCode.MODEL_MISSING), [action], None
     if isinstance(exc, ModelUnavailableError):
         action = {
             "intent": "fetch_model",
