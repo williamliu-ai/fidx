@@ -129,6 +129,13 @@ query ──┬─ FTS5 MATCH (OR-of-quoted-tokens, phrases preserved) ─ top 5
   `calibrated` for the recall/purity tradeoff. The envelope gives callers
   enough context to decide whether to inspect the top result, relax filters,
   change mode, change truncation, broaden scope, or index data.
+- `--guidance` opts into deterministic confidence reasons, scoped term coverage,
+  a candidate-pool count relation, and no-result causes. `--explain` separately
+  exposes raw query-quality signals. Both are off by default. Reasons examine
+  the bounded pre-filter pool and are uncalibrated heuristics; returned
+  `summary.result_count` remains exact. A daemon must acknowledge the option
+  protocol or the CLI recomputes the search locally. The final response is
+  budgeted once, after any cold-fallback provenance is attached.
 
 ### Latency budget
 

@@ -353,6 +353,52 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
         }, ensure_ascii=False))
 
 
+def _guidance_response_valid(candidate: dict, req: dict, *, guidance_on: bool,
+                             guidance_explicit: bool, explain: bool) -> bool:
+    """Reject a capability acknowledgement that did not honor the request."""
+    request = candidate.get("request")
+    summary = candidate.get("summary")
+    diagnostics = candidate.get("diagnostics")
+    if not all(isinstance(value, dict) for value in (request, summary, diagnostics)):
+        return False
+    if (not isinstance(candidate.get("results"), list) or
+            candidate.get("status") not in ("ok", "no_results", "empty_index") or
+            type(summary.get("result_count")) is not int or
+            summary["result_count"] != len(candidate["results"]) or
+            candidate.get("query") != req["query"] or
+            any(request.get(key) != req[key] for key in (
+                "mode", "collections", "limit", "min_score")) or
+            request.get("truncate") != (req["truncate"] or "off")):
+        return False
+    if guidance_explicit or guidance_on:
+        if type(request.get("guidance")) is not bool or request["guidance"] is not guidance_on:
+            return False
+    elif "guidance" in request:
+        return False
+    if guidance_on:
+        execution = diagnostics.get("execution")
+        if (not isinstance(summary.get("confidence_reasons"), list) or
+                summary.get("count_relation") != "gte" or
+                not isinstance(diagnostics.get("term_coverage"), dict) or
+                not isinstance(execution, dict) or
+                execution.get("complete") is not True or
+                execution.get("partial_reason", object()) is not None):
+            return False
+        if candidate.get("status") != "ok":
+            no_results = diagnostics.get("no_results")
+            if (not isinstance(no_results, dict) or
+                    not isinstance(no_results.get("causes"), list)):
+                return False
+    else:
+        no_results = diagnostics.get("no_results")
+        if ("confidence_reasons" in summary or "count_relation" in summary or
+                "term_coverage" in diagnostics or "execution" in diagnostics or
+                (isinstance(no_results, dict) and "causes" in no_results) or
+                (no_results is not None and not isinstance(no_results, dict))):
+            return False
+    return isinstance(diagnostics.get("qpp"), dict) if explain else "qpp" not in diagnostics
+
+
 @main.command()
 @click.argument("query")
 @click.option("-c", "--collection", "collections", multiple=True,
@@ -369,11 +415,15 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                    "mad:3, source:0.4,0.2. See fidx/truncate.py.")
 @click.option("--budget-tokens", type=click.IntRange(min=0), default=None,
               help="Estimate a compact JSON response budget; requires --json.")
+@click.option("--guidance/--no-guidance", default=None,
+              help="Opt in to search guidance; disabled by default.")
+@click.option("--explain", is_flag=True, help="Include search quality signals in JSON diagnostics.")
 @click.option("--no-daemon", is_flag=True, help="Skip the warm daemon even if running.")
 @click.pass_context
 def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: int,
            mode: str, as_json: bool, files_only: bool, min_score: float | None,
-           truncate: str | None, budget_tokens: int | None, no_daemon: bool) -> None:
+           truncate: str | None, budget_tokens: int | None, guidance: bool | None,
+           explain: bool, no_daemon: bool) -> None:
     """Search the index. Default mode is hybrid (best recall).
 
     \b
@@ -396,18 +446,45 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
     req = {"cmd": "search", "query": query, "mode": mode,
            "collections": list(collections), "limit": limit, "min_score": min_score,
            "truncate": truncate}
+    guidance_on = daemon.GUIDANCE_DEFAULT if guidance is None else guidance
+    protocol_required = guidance is not None or guidance_on or explain
+    if guidance is not None or guidance_on:
+        req["guidance"] = guidance_on
+    if explain:
+        req["explain"] = True
 
     payload: dict | None = None
     stale_daemon = False
+    fallback_cause: str | None = None
+    daemon_error: str | None = None
+    execution_path = "cold"
     if not no_daemon:
-        resp = daemon.client_request(db_path, req)
-        if resp is not None and resp.get("ok"):
-            if resp.get("instance_id") != instance_id:
-                stale_daemon = True
-            else:
-                candidate = resp.get("results")
-                if isinstance(candidate, dict) and candidate.get("schema") == daemon.SEARCH_SCHEMA:
+        if protocol_required:
+            outcome = daemon.client_request_outcome(
+                db_path, req, expected_instance_id=instance_id,
+                require_guidance_protocol=True)
+            stale_daemon = outcome.stale_instance
+            fallback_cause = outcome.fallback_cause
+            daemon_error = outcome.daemon_error
+            if outcome.path == "daemon":
+                candidate = outcome.response["results"]
+                if _guidance_response_valid(
+                    candidate, req, guidance_on=guidance_on,
+                    guidance_explicit=guidance is not None, explain=explain,
+                ):
                     payload = candidate
+                    execution_path = "daemon"
+                else:
+                    fallback_cause = "malformed_response"
+        else:
+            resp = daemon.client_request(db_path, req)
+            if resp is not None and resp.get("ok"):
+                if resp.get("instance_id") != instance_id:
+                    stale_daemon = True
+                else:
+                    candidate = resp.get("results")
+                    if isinstance(candidate, dict) and candidate.get("schema") == daemon.SEARCH_SCHEMA:
+                        payload = candidate
     if payload is None:
         store = vector_store.open_store(conn, db_path)
         has_documents = conn.execute(
@@ -423,6 +500,14 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
             "daemon": "stale_instance",
             "message": "Restart fidx serve to use the current index database.",
         }
+    if guidance_on:
+        execution = payload["diagnostics"]["execution"]
+        execution.update({"complete": True, "partial_reason": None,
+                          "path": execution_path})
+        if fallback_cause is not None:
+            execution["fallback_cause"] = fallback_cause
+        if daemon_error is not None:
+            execution["error"] = daemon_error
     if budget_tokens is not None:
         payload = budget.apply_budget(payload, budget_tokens)
 
