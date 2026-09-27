@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from . import budget, config, db, freshness, search as searchmod, vector_store
+from . import budget, config, db, freshness, rerank as rerankmod, search as searchmod, vector_store
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
@@ -523,7 +523,9 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
 
 
 def run_search(conn, store, embedder, req: dict,
-               *, trace: searchmod.SearchTrace | None = None) -> dict:
+               *, trace: searchmod.SearchTrace | None = None,
+               reranker: rerankmod.Reranker | None = None,
+               rerank_n: int = 20) -> dict:
     query = req["query"]
     mode = req.get("mode", "hybrid")
     if ("guidance" in req and type(req["guidance"]) is not bool) or (
@@ -542,30 +544,48 @@ def run_search(conn, store, embedder, req: dict,
     collections = list(req.get("collections") or [])
     search_collections = collections or None
     limit = int(req.get("limit", 10))
-    # A valid empty index has no vectors to query. Skip model loading entirely,
-    # including on machines whose embedding cache is still cold.
-    if mode in ("lexical", "vector", "hybrid") and not conn.execute(
-        "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone():
-        raw = []
-    elif mode == "lexical":
-        raw = searchmod.search_lexical(conn, query, search_collections, limit)
-        if trace is not None:
-            trace.lexical = tuple(raw)
-            trace.fused_pool = tuple(raw)
-    elif mode == "vector":
-        raw = searchmod.search_vector(conn, store, embedder, query, search_collections, limit)
-        if trace is not None:
-            trace.vector = tuple(raw)
-            trace.fused_pool = tuple(raw)
-    elif mode == "hybrid":
-        if trace is None:
-            raw = searchmod.search_hybrid(
-                conn, store, embedder, query, search_collections, limit)
-        else:
-            raw = searchmod.search_hybrid(
-                conn, store, embedder, query, search_collections, limit, trace=trace)
-    else:
+    if reranker is not None and (
+            type(rerank_n) is not int or not 1 <= rerank_n <= 100):
+        raise ValueError("rerank_n must be an integer from 1 to 100")
+
+    def retrieve(window: int) -> list[searchmod.Result]:
+        # A valid empty index has no vectors to query. Skip model loading
+        # entirely, including on machines with a cold embedding cache.
+        if mode in ("lexical", "vector", "hybrid") and not conn.execute(
+                "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone():
+            return []
+        if mode == "lexical":
+            found = searchmod.search_lexical(conn, query, search_collections, window)
+            if trace is not None:
+                trace.lexical = tuple(found)
+                trace.fused_pool = tuple(found)
+            return found
+        if mode == "vector":
+            found = searchmod.search_vector(
+                conn, store, embedder, query, search_collections, window)
+            if trace is not None:
+                trace.vector = tuple(found)
+                trace.fused_pool = tuple(found)
+            return found
+        if mode == "hybrid":
+            if trace is None:
+                return searchmod.search_hybrid(
+                    conn, store, embedder, query, search_collections, window)
+            return searchmod.search_hybrid(
+                conn, store, embedder, query, search_collections, window, trace=trace)
         raise ValueError(f"unknown mode {mode!r}")
+
+    raw = retrieve(max(limit, rerank_n) if reranker is not None else limit)
+    rerank_succeeded = False
+    if reranker is not None and raw:
+        outcome = rerankmod.rerank_results(conn, query, raw, mode, reranker)
+        if outcome.failed:
+            # The wider lexical/vector retrieval window can change candidates
+            # and scores; retry at the original limit for truthful parity.
+            raw = retrieve(limit)
+        else:
+            raw = list(outcome.results[:limit])
+            rerank_succeeded = True
     min_score = req.get("min_score")
     results = raw
     if min_score is not None:
@@ -576,7 +596,7 @@ def run_search(conn, store, embedder, req: dict,
         # corpus-calibrated abstention floor (fidx calibrate --store) + knee tail
         from . import truncate as truncatemod
         floor = get_meta(conn, "truncate_floor")
-        if floor is not None:
+        if floor is not None and not rerank_succeeded:
             results = truncatemod.truncate(results, f"abs:{float(floor)}", mode)
         results = truncatemod.truncate(results, "knee", mode)
     elif truncate:
