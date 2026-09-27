@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 from click.testing import CliRunner
@@ -127,8 +128,12 @@ def test_human_get_and_full_are_byte_identical_and_uncapped(tmp_path):
     full = _get(path, "docs/note.md", "--full")
     head = _get(path, "docs/note.md", "--head")
     assert plain.exit_code == full.exit_code == head.exit_code == 0
-    assert plain.stdout_bytes == full.stdout_bytes == (body + "\n").encode("utf-8")
-    assert head.stdout_bytes == ("\n".join(body.splitlines()[:40]) + "\n").encode("utf-8")
+    # CliRunner's text stream writes platform line endings into stdout_bytes.
+    expected_full = (body + "\n").replace("\n", os.linesep).encode("utf-8")
+    expected_head = ("\n".join(body.splitlines()[:40]) + "\n")
+    expected_head = expected_head.replace("\n", os.linesep).encode("utf-8")
+    assert plain.stdout_bytes == full.stdout_bytes == expected_full
+    assert head.stdout_bytes == expected_head
 
 
 def test_negative_max_bytes_and_human_max_bytes_are_usage_errors(tmp_path):
