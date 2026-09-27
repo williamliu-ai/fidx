@@ -25,7 +25,13 @@ from pathlib import Path
 # host with a missing or wrong-arch sqlite-vec wheel. diagnostics.py probes it
 # under guard instead.
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+def has_chunk_line_columns(conn: sqlite3.Connection) -> bool:
+    """Old read-only indexes can be searched before their schema is migrated."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(chunks)")}
+    return {"line_start", "line_end"} <= columns
 
 
 def sqlite_module():
@@ -123,13 +129,21 @@ def init_schema(conn: sqlite3.Connection) -> None:
             seq INTEGER NOT NULL,
             pos INTEGER NOT NULL,
             length INTEGER NOT NULL,
+            line_start INTEGER,
+            line_end INTEGER,
             UNIQUE(doc_id, seq)
         );
         CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id);
         """
     )
+    columns = {row["name"] for row in cur.execute("PRAGMA table_info(chunks)")}
+    for column in ("line_start", "line_end"):
+        if column not in columns:
+            cur.execute(f"ALTER TABLE chunks ADD COLUMN {column} INTEGER")
     cur.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),))
+    cur.execute("UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?",
+                (str(SCHEMA_VERSION), SCHEMA_VERSION))
     conn.commit()
 
 

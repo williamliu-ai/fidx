@@ -88,6 +88,14 @@ The embedding profile **and vector backend** are pinned in `meta` by the
 **first embed run**, not by whichever command created the file; a mismatch in
 either is a hard error, never a silent dimension/backend conflict.
 
+Chunks also store nullable `line_start` and `line_end` values. They describe
+the chunk's span in the stored document body, using 1-based inclusive lines;
+CRLF counts as one line break and a final newline adds no empty line. Schema
+version 2 adds these columns without rewriting old chunks. Searching an old
+index leaves locations absent until that collection is indexed again, when
+its missing line ranges are filled from existing chunk offsets without
+re-embedding.
+
 ### Query pipeline
 
 ```
@@ -99,6 +107,8 @@ query ──┬─ FTS5 MATCH (OR-of-quoted-tokens, phrases preserved) ─ top 5
 - The OR-joined token expression is recall-oriented; BM25 still ranks
   all-term documents first. User-quoted phrases pass through as FTS5 phrases.
 - Vector search over-fetches 4× then dedups to best chunk per document.
+- Vector and hybrid results include the best chunk's `locations` line range
+  when available. Lexical-only matches remain document-level and omit it.
 - RRF: `score = Σ weight / (60 + rank + 1)`, equal weights. A document found
   by both sources outranks a single-source rank-1 — that is the hybrid bet.
 - `fidx search --json` returns an agent envelope (`schema`,
