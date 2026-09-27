@@ -50,12 +50,14 @@ def _prepare_socket_path(db_path: Path) -> Path:
     return sock_path
 
 
-class _ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
-    request_queue_size = 128
-
-
 def _bind_private_unix_server(sock_path: Path, handler) -> socketserver.UnixStreamServer:
+    if not hasattr(socketserver, "UnixStreamServer"):
+        raise RuntimeError("Unix-socket daemon is unavailable on this platform")
+
+    class _ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
+        request_queue_size = 128
+
     old_umask = os.umask(0o177)
     try:
         server = _ThreadedUnixServer(str(sock_path), handler)
@@ -559,6 +561,8 @@ def run_search(conn, store, embedder, req: dict) -> dict:
 
 
 def serve(db_path: Path, conn, store, embedder) -> None:
+    if not hasattr(socketserver, "UnixStreamServer"):
+        raise RuntimeError("Unix-socket daemon is unavailable on this platform")
     instance_id = get_meta(conn, "instance_id")
     daemon_fingerprint = config.profile_fingerprint(embedder.profile)
     embed_lock = threading.Lock()
@@ -633,6 +637,8 @@ def serve(db_path: Path, conn, store, embedder) -> None:
 
 def client_request(db_path: Path, req: dict, timeout: float = 30.0) -> dict | None:
     """Send a request to a running daemon; None if no usable daemon."""
+    if not hasattr(socketserver, "UnixStreamServer"):
+        return None
     sock_path = socket_path_for(db_path)
     if not sock_path.exists():
         return None

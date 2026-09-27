@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import socket
+import socketserver
 
 import numpy as np
 import pytest
@@ -89,6 +90,13 @@ def test_cold_query_commands_fail_closed_with_fetch_hint(
 ):
     cache, attempts = cold_cache
     result = CliRunner().invoke(cli.main, ["--db", str(populated_db), *args])
+    if args == ["serve"] and not hasattr(socketserver, "UnixStreamServer"):
+        assert result.exit_code == 1
+        assert result.stderr.strip() == (
+            "Error: Unix-socket daemon is unavailable on this platform")
+        assert not attempts
+        assert not cache.exists()
+        return
     assert result.exit_code == 5, result.output
     message = (
         "embedding model 'BAAI/bge-small-en-v1.5' for profile "
@@ -212,9 +220,34 @@ def test_partial_cache_fails_closed_with_fetch_hint(
 ):
     _partial_cache_fastembed(monkeypatch, tmp_path)
     result = CliRunner().invoke(cli.main, ["--db", str(populated_db), *args])
+    if args == ["serve"] and not hasattr(socketserver, "UnixStreamServer"):
+        assert result.exit_code == 1
+        assert result.stderr.strip() == (
+            "Error: Unix-socket daemon is unavailable on this platform")
+        assert not isinstance(result.exception, _OrtNoSuchFile)
+        assert not any((tmp_path / "cache").rglob("*.onnx"))
+        return
     assert result.exit_code == 5
     assert not isinstance(result.exception, _OrtNoSuchFile)
     assert "`fidx models fetch embed --profile bge-384`" in result.output
+
+
+def test_unsupported_serve_stops_before_model_load_or_network(
+    cold_cache, populated_db, monkeypatch,
+):
+    cache, attempts = cold_cache
+
+    def forbidden_model(*args, **kwargs):
+        raise AssertionError("unsupported serve loaded an embedding model")
+
+    monkeypatch.setattr("fastembed.TextEmbedding", forbidden_model)
+    monkeypatch.delattr(socketserver, "UnixStreamServer", raising=False)
+    result = CliRunner().invoke(cli.main, ["--db", str(populated_db), "serve"])
+    assert result.exit_code == 1
+    assert result.stderr.strip() == (
+        "Error: Unix-socket daemon is unavailable on this platform")
+    assert not attempts
+    assert not cache.exists()
 
 
 def test_doctor_flags_partial_cache_unavailable(tmp_path, monkeypatch):
