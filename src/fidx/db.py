@@ -53,7 +53,10 @@ def sqlite_module():
         return sqlite3
 
 
-def connect(db_path: Path, *, create: bool = True) -> sqlite3.Connection:
+def connect(db_path: Path, *, create: bool = True,
+            read_only: bool = False) -> sqlite3.Connection:
+    if create and read_only:
+        raise ValueError("read_only requires create=False")
     sqlite = sqlite_module()
     db_path = Path(db_path)
     if create:
@@ -71,7 +74,7 @@ def connect(db_path: Path, *, create: bool = True) -> sqlite3.Connection:
                 raise IndexInvalid(f"index {db_path} is not a SQLite database")
         # mode=rw permits the intentional writes in `collection remove` and
         # `calibrate --store`, but never creates a missing database path.
-        uri = db_path.absolute().as_uri() + "?mode=rw"
+        uri = db_path.absolute().as_uri() + ("?mode=ro" if read_only else "?mode=rw")
         try:
             conn = sqlite.connect(uri, uri=True)
         except sqlite.DatabaseError as exc:
@@ -88,6 +91,8 @@ def connect(db_path: Path, *, create: bool = True) -> sqlite3.Connection:
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
     conn.execute("PRAGMA busy_timeout=5000")
+    if read_only:
+        conn.execute("PRAGMA query_only=ON")
     if create:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")

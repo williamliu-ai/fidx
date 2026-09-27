@@ -138,9 +138,12 @@ query ──┬─ FTS5 MATCH (OR-of-quoted-tokens, phrases preserved) ─ top 5
 | cold CLI hybrid query | python + ONNX load, < 1 s |
 | lexical-only query | no model load at all |
 
-The daemon (`fidx serve`) holds the SQLite connection and ONNX model on a
-unix socket in a per-user private runtime/cache directory; the CLI
-auto-detects it. This is the intended mode for agents.
+The daemon (`fidx serve`) keeps the ONNX model warm on a Unix socket in a
+per-user private runtime/cache directory; the CLI auto-detects it. Concurrent
+handlers open and close their own read-only SQLite and vector-store handles.
+Only query embedding is serialized for sqlite-vec, so lexical queries and
+post-embedding search can overlap. The DuckDB daemon path serializes the
+whole request in v1. This is the intended mode for agents.
 
 ## Invariants
 
