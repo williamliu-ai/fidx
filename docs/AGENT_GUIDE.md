@@ -92,7 +92,15 @@ fidx search "exact error code E1234" -c code --mode lexical --json
 fidx search "conceptual description with different wording" -c docs --mode vector --json
 fidx search "where is request timeout handled?" -c code --files -n 20
 fidx get --head "#a1b2c3"
+fidx get "#a1b2c3" --json
+fidx get "#a1b2c3" --json --max-bytes 0  # explicitly request the full body
 ```
+
+`get --json` returns `fidx.get.v1` with `docid`, `collection`, `relpath`,
+`truncated`, and `body`. The default body cap is 64 KiB of raw UTF-8 text,
+applied after `--head` and before JSON escaping. A truncated body ends with
+`… [truncated]`; `--max-bytes 0` removes the cap. Human `get` output remains
+uncapped.
 
 Use `fidx status` to inspect index health. Use `fidx calibrate --store` only
 when you want to refresh the stored floor used by `--truncate calibrated`;
@@ -101,8 +109,8 @@ when you want to refresh the stored floor used by `--truncate calibrated`;
 ## Reading `fidx search --json`
 
 Execution failures use a separate `fidx.error.v1` object on stdout when JSON
-was requested. Use `fidx --json get ...` or `fidx --json index ...` to request
-JSON errors from commands without a result-level `--json` option. Each error
+was requested. Use `fidx get ... --json` for structured get results and errors,
+or `fidx --json index ...` to request JSON errors from index. Each error
 has `status`, `message`, and `next_actions`; action items use the same
 `{intent, reason, command}` shape as search. Only ambiguous references add
 `candidates`. `doctor --json` always returns its own report, including on a
