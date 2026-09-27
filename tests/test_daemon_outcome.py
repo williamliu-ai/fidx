@@ -48,6 +48,11 @@ class FakeSocket:
 
 def _request(monkeypatch, tmp_path, response=None, *, chunks=None, connect_error=None,
              recv_error=None, socket_exists=True):
+    # These tests exercise a simulated supported Unix-socket transport even on
+    # Windows, where neither platform symbol need exist. The unsupported case
+    # below deliberately omits this fixture.
+    monkeypatch.setattr(daemon.socketserver, "UnixStreamServer", object(), raising=False)
+    monkeypatch.setattr(daemon.socket, "AF_UNIX", object(), raising=False)
     path = tmp_path / "daemon.sock"
     if socket_exists:
         path.touch()
@@ -191,8 +196,16 @@ def test_missing_socket_is_cold_without_fallback_cause(monkeypatch, tmp_path):
     assert result.stale_instance is False
 
 
+def test_fake_socket_can_exercise_supported_path_without_platform_unix_types(monkeypatch, tmp_path):
+    monkeypatch.delattr(daemon.socketserver, "UnixStreamServer", raising=False)
+    monkeypatch.delattr(daemon.socket, "AF_UNIX", raising=False)
+    _request(monkeypatch, tmp_path, _response())
+    assert _outcome(tmp_path).path == "daemon"
+
+
 def test_unsupported_unix_socket_is_cold_without_fallback_cause(monkeypatch, tmp_path):
     monkeypatch.delattr(daemon.socketserver, "UnixStreamServer", raising=False)
+    monkeypatch.delattr(daemon.socket, "AF_UNIX", raising=False)
     result = _outcome(tmp_path)
     assert result.path == "cold"
     assert result.fallback_cause is None
