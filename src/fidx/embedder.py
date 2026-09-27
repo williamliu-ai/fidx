@@ -166,8 +166,11 @@ class FastEmbedder:
         return vecs / norms
 
     def embed_docs(self, texts: Sequence[str]) -> np.ndarray:
+        # fastembed forks even for one worker on a full batch; inline avoids
+        # that overhead. Zero still means all available workers.
+        parallel = None if self._parallel == 1 else self._parallel
         return self._embed([self.profile.doc_prefix + t for t in texts],
-                           parallel=self._parallel)
+                           parallel=parallel)
 
     def embed_queries(self, texts: Sequence[str]) -> np.ndarray:
         return self._embed([self.profile.query_prefix + t for t in texts])

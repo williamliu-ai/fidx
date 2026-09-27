@@ -11,10 +11,12 @@ attention memory grows with batch x seq^2 and long-context models (nomic:
 8192 tokens) can demand tens of GB for one batch."""
 
 import pytest
+import numpy as np
 
 pytest.importorskip("tokenizers")
 
-from fidx.embedder import MAX_EMBED_TOKENS, _cap_tokenizer, _truncate_text
+from fidx.config import EmbedProfile
+from fidx.embedder import FastEmbedder, MAX_EMBED_TOKENS, _cap_tokenizer, _truncate_text
 
 
 def word_tokenizer(max_length: int | None = None):
@@ -60,3 +62,54 @@ def test_truncate_text_keeps_short_text_unchanged():
     tok = word_tokenizer(max_length=5)
     text = "w0 w1 w2"
     assert _truncate_text(tok, text) is text
+
+
+@pytest.mark.parametrize(("parallel", "expected"), [
+    (1, None),
+    (0, 0),
+    (3, 3),
+])
+def test_embed_docs_routes_worker_count_without_forking_one_worker(
+    monkeypatch, parallel, expected
+):
+    profile = EmbedProfile(name="test", model="test", dim=2)
+    embedder = FastEmbedder(profile, parallel=parallel)
+    seen = []
+
+    class FakeModel:
+        tokenizer = None
+
+        def embed(self, texts, *, parallel, **kwargs):
+            seen.append(parallel)
+            return iter([np.array([1.0, 0.0], dtype=np.float32) for _ in texts])
+
+    class Wrapper:
+        model = FakeModel()
+
+        def embed(self, *args, **kwargs):
+            return self.model.embed(*args, **kwargs)
+
+    monkeypatch.setattr(embedder, "_ensure_model", lambda: Wrapper())
+    vectors = embedder.embed_docs(["doc"] * 64)
+    assert vectors.shape == (64, 2)
+    assert seen == [expected]
+
+
+@pytest.mark.parametrize("parallel", [0, 3])
+def test_worker_modes_pretruncate_before_fastembed(monkeypatch, parallel):
+    profile = EmbedProfile(name="test", model="test", dim=2)
+    embedder = FastEmbedder(profile, parallel=parallel)
+    tokenizer = word_tokenizer(max_length=5)
+    seen = []
+
+    class FakeModel:
+        def __init__(self):
+            self.model = type("Inner", (), {"tokenizer": tokenizer})()
+
+        def embed(self, texts, *, parallel, **kwargs):
+            seen.append((list(texts), parallel))
+            return iter([np.array([1.0, 0.0], dtype=np.float32) for _ in texts])
+
+    monkeypatch.setattr(embedder, "_ensure_model", FakeModel)
+    embedder.embed_docs([" ".join(f"w{i}" for i in range(10))])
+    assert seen == [(["w0 w1 w2 w3 w4"], parallel)]
