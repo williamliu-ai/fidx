@@ -21,9 +21,11 @@ import os
 import socket
 import socketserver
 import sys
+import threading
+from contextlib import nullcontext
 from pathlib import Path
 
-from . import budget, freshness, search as searchmod
+from . import budget, config, db, freshness, search as searchmod, vector_store
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
@@ -48,10 +50,15 @@ def _prepare_socket_path(db_path: Path) -> Path:
     return sock_path
 
 
+class _ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+    request_queue_size = 128
+
+
 def _bind_private_unix_server(sock_path: Path, handler) -> socketserver.UnixStreamServer:
     old_umask = os.umask(0o177)
     try:
-        server = socketserver.UnixStreamServer(str(sock_path), handler)
+        server = _ThreadedUnixServer(str(sock_path), handler)
     finally:
         os.umask(old_umask)
     os.chmod(sock_path, 0o600)
@@ -553,6 +560,44 @@ def run_search(conn, store, embedder, req: dict) -> dict:
 
 def serve(db_path: Path, conn, store, embedder) -> None:
     instance_id = get_meta(conn, "instance_id")
+    daemon_fingerprint = config.profile_fingerprint(embedder.profile)
+    embed_lock = threading.Lock()
+    duckdb_lock = threading.Lock()
+
+    class LockedEmbedder:
+        def embed_queries(self, texts):
+            with embed_lock:
+                return embedder.embed_queries(texts)
+
+    locked_embedder = LockedEmbedder()
+
+    def search_request(req: dict) -> dict:
+        request_conn = db.connect(db_path, create=False, read_only=True)
+        try:
+            # open_store only selects the backend; DuckDB opens its sidecar
+            # lazily in run_search. Recheck per request because first indexing
+            # may pin DuckDB after this daemon started with NullStore.
+            request_store = vector_store.open_store(
+                request_conn, db_path, read_only=True)
+            with duckdb_lock if request_store.name == "duckdb" else nullcontext():
+                try:
+                    if req.get("mode", "hybrid") in ("vector", "hybrid"):
+                        pinned_fingerprint = get_meta(request_conn, "embed_fingerprint")
+                        if (pinned_fingerprint is not None
+                                and pinned_fingerprint != daemon_fingerprint):
+                            pinned_profile = get_meta(request_conn, "embed_profile")
+                            raise RuntimeError(
+                                f"index embedding profile {pinned_profile!r} differs "
+                                f"from daemon profile {embedder.profile.name!r}; "
+                                "restart fidx serve"
+                            )
+                    return run_search(request_conn, request_store, locked_embedder, req)
+                finally:
+                    if hasattr(request_store, "close"):
+                        request_store.close()
+        finally:
+            request_conn.close()
+
     sock_path = _prepare_socket_path(db_path)
     if sock_path.exists() or sock_path.is_symlink():
         if not sock_path.is_socket():
@@ -569,7 +614,7 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                 if req.get("cmd") == "ping":
                     resp = {"ok": True, "pong": True}
                 else:
-                    resp = {"ok": True, "results": run_search(conn, store, embedder, req)}
+                    resp = {"ok": True, "results": search_request(req)}
             except Exception as exc:  # protocol boundary: report, don't crash server
                 resp = {"ok": False, "error": str(exc)}
             resp["instance_id"] = instance_id

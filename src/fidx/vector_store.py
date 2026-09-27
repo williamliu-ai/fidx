@@ -132,8 +132,9 @@ class SqliteVecStore:
 class DuckDBStore:
     name = "duckdb"
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, read_only: bool = False):
         self.path = Path(path)
+        self.read_only = read_only
         self._conn = None
         self._dim: int | None = None
 
@@ -145,8 +146,10 @@ class DuckDBStore:
                 raise RuntimeError(
                     "the duckdb backend requires the 'duckdb' extra: pip install 'fmdidx[duckdb]'"
                 ) from exc
-            self._conn = duckdb.connect(str(self.path))
-            self._conn.execute("INSTALL vss; LOAD vss")
+            self._conn = duckdb.connect(str(self.path), read_only=self.read_only)
+            if not self.read_only:
+                self._conn.execute("INSTALL vss")
+            self._conn.execute("LOAD vss")
             self._conn.execute("SET hnsw_enable_experimental_persistence = true")
             row = self._conn.execute(
                 "SELECT count(*) FROM information_schema.tables WHERE table_name = 'vectors'"
@@ -157,6 +160,11 @@ class DuckDBStore:
                 ).fetchone()
                 self._dim = self._dim[0] if self._dim else None
         return self._conn
+
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def ensure(self, dim: int) -> None:
         conn = self._connect()
@@ -206,15 +214,16 @@ class DuckDBStore:
         return int(self._connect().execute("SELECT count(*) FROM vectors").fetchone()[0])
 
 
-def make_store(backend: str, conn: sqlite3.Connection, db_path: Path):
+def make_store(backend: str, conn: sqlite3.Connection, db_path: Path,
+               *, read_only: bool = False):
     if backend == "sqlite-vec":
         return SqliteVecStore(conn)
     if backend == "duckdb":
-        return DuckDBStore(sidecar_path(db_path))
+        return DuckDBStore(sidecar_path(db_path), read_only=read_only)
     raise ValueError(f"unknown vector backend {backend!r}; known: {', '.join(BACKENDS)}")
 
 
-def open_store(conn: sqlite3.Connection, db_path: Path):
+def open_store(conn: sqlite3.Connection, db_path: Path, *, read_only: bool = False):
     """Store for an existing index: pinned backend, or NullStore pre-embed."""
     from . import db as dbmod
 
@@ -224,4 +233,4 @@ def open_store(conn: sqlite3.Connection, db_path: Path):
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'vectors'").fetchone():
             return SqliteVecStore(conn)
         return NullStore()
-    return make_store(backend, conn, db_path)
+    return make_store(backend, conn, db_path, read_only=read_only)
