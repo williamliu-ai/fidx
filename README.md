@@ -129,6 +129,7 @@ fidx search "auth" --files --min-score 0.02
 # Fetch a document by path or docid
 fidx get "notes/meeting.md"
 fidx get "#a1b2c3"
+fidx get "#a1b2c3" --json  # versioned result, 64 KiB UTF-8 body cap
 ```
 
 ## Obsidian plugin
@@ -247,6 +248,7 @@ fidx search "what did we decide about retry handling?" -c memory --json -n 5
 fidx search "sqlite vector backend configuration" -c docs --json -n 5
 fidx search "sqlite vector backend configuration" -c docs --json -n 5 --truncate knee
 fidx get --head "#a1b2c3"
+fidx get "#a1b2c3" --json --head  # cap applies after the first 40 lines
 
 # Coding-agent context: return only matching paths for follow-up reads
 fidx search "where is request timeout handled?" -c code --files -n 20

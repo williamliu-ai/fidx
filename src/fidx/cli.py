@@ -410,12 +410,33 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                 click.echo(f"        {r['snippet'][:160]}")
 
 
+_GET_JSON_DEFAULT_MAX_BYTES = 65_536
+_GET_TRUNCATION_MARKER = "\n… [truncated]"
+
+
+def _bounded_get_body(body: str, max_bytes: int) -> tuple[str, bool]:
+    """Cap source bytes at a UTF-8 character boundary before JSON escaping."""
+    if max_bytes == 0:
+        return body, False
+    encoded = body.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return body, False
+    return encoded[:max_bytes].decode("utf-8", errors="ignore") + _GET_TRUNCATION_MARKER, True
+
+
 @main.command()
 @click.argument("target")
 @click.option("--full/--head", default=True, help="--head prints the first 40 lines.")
+@click.option("--json", "as_json", is_flag=True,
+              help="Versioned document JSON with a 64 KiB raw UTF-8 body cap.")
+@click.option("--max-bytes", type=click.IntRange(min=0), default=None,
+              help="JSON body cap in raw UTF-8 bytes (0 = unlimited).")
 @click.pass_context
-def get(ctx: click.Context, target: str, full: bool) -> None:
+def get(ctx: click.Context, target: str, full: bool, as_json: bool,
+        max_bytes: int | None) -> None:
     """Print a document by path (collection/relpath) or docid (#abc123)."""
+    if max_bytes is not None and not as_json:
+        raise click.UsageError("--max-bytes requires get --json")
     conn, _ = open_index(ctx.obj["db_path"], create=False)
     if target.startswith("#"):
         prefix = target[1:]
@@ -437,14 +458,26 @@ def get(ctx: click.Context, target: str, full: bool) -> None:
         row = matches[0] if matches else None
     else:
         coll, _, rel = target.partition("/")
-        row = conn.execute("SELECT body, collection, relpath FROM documents "
+        row = conn.execute("SELECT body, collection, relpath, hash FROM documents "
                            "WHERE collection = ? AND relpath = ?", (coll, rel)).fetchone()
     if row is None:
         raise click.ClickException(f"document {target!r} not found")
     body = row["body"]
     if not full:
         body = "\n".join(body.splitlines()[:40])
-    click.echo(body)
+    if as_json:
+        bounded, truncated = _bounded_get_body(
+            body, _GET_JSON_DEFAULT_MAX_BYTES if max_bytes is None else max_bytes)
+        click.echo(json.dumps({
+            "schema": "fidx.get.v1",
+            "docid": "#" + row["hash"][:6],
+            "collection": row["collection"],
+            "relpath": row["relpath"],
+            "truncated": truncated,
+            "body": bounded,
+        }, ensure_ascii=False))
+    else:
+        click.echo(body)
 
 
 @main.command()

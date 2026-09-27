@@ -163,16 +163,16 @@ def test_ambiguous_hash_prefix_lists_both_paths_but_unique_hash_resolves(tmp_pat
     conn.commit()
     conn.close()
 
-    ambiguous = CliRunner().invoke(main, ["--db", str(path), "get", "#abc", "--json"])
-    assert ambiguous.exit_code == 2  # get has no command-level --json
-    ambiguous = CliRunner().invoke(main, ["--json", "--db", str(path), "get", "#abc"])
-    assert ambiguous.exit_code == 6, ambiguous.output
-    payload = json.loads(ambiguous.stdout)
-    assert payload["status"] == "ambiguous_reference"
-    assert payload["candidates"] == [
-        {"docid": "#abc123", "collection": "notes", "relpath": "a.md"},
-        {"docid": "#abc123", "collection": "other", "relpath": "b.md"},
-    ]
+    for args in (["--db", str(path), "get", "#abc", "--json"],
+                 ["--json", "--db", str(path), "get", "#abc"]):
+        ambiguous = CliRunner().invoke(main, args)
+        assert ambiguous.exit_code == 6, ambiguous.output
+        payload = json.loads(ambiguous.stdout)
+        assert payload["status"] == "ambiguous_reference"
+        assert payload["candidates"] == [
+            {"docid": "#abc123", "collection": "notes", "relpath": "a.md"},
+            {"docid": "#abc123", "collection": "other", "relpath": "b.md"},
+        ]
     for target in ("#def", "#" + "def456" + "1" * 58):
         unique = CliRunner().invoke(main, ["--db", str(path), "get", target])
         assert unique.exit_code == 0, unique.output
