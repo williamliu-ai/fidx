@@ -31,6 +31,7 @@ from . import budget, config, db, freshness, search as searchmod, vector_store
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
+GUIDANCE_DEFAULT = False  # Internal seam; a public default flip requires M-G6.
 
 
 def socket_path_for(db_path: Path) -> Path:
@@ -525,6 +526,13 @@ def run_search(conn, store, embedder, req: dict,
                *, trace: searchmod.SearchTrace | None = None) -> dict:
     query = req["query"]
     mode = req.get("mode", "hybrid")
+    if ("guidance" in req and type(req["guidance"]) is not bool) or (
+            "explain" in req and type(req["explain"]) is not bool):
+        raise ValueError("guidance and explain must be booleans")
+    guidance_on = req.get("guidance", GUIDANCE_DEFAULT)
+    explain = req.get("explain", False)
+    if (guidance_on or explain) and trace is None:
+        trace = searchmod.SearchTrace()
     if trace is not None:
         trace.mode = mode
         trace.lexical = ()
@@ -576,6 +584,20 @@ def run_search(conn, store, embedder, req: dict,
         results = truncatemod.truncate(results, truncate, mode)
     envelope = _agent_envelope(conn, req, mode, collections, limit, min_score, truncate,
                                raw, after_min, results)
+    if "guidance" in req or guidance_on:
+        envelope["request"]["guidance"] = guidance_on
+    if guidance_on or explain:
+        from . import guidance, guidance_diagnostics
+        coverage = guidance.term_coverage(conn, query, collections=collections)
+        if guidance_on:
+            projection = guidance_diagnostics.assemble(
+                envelope, trace, coverage,
+                guidance_diagnostics.ExecutionEvidence(True, None), explain=explain)
+            envelope["summary"].update(projection["summary"])
+            envelope["diagnostics"].update(projection["diagnostics"])
+        else:
+            signals = guidance.compute_qpp(trace, term_coverage_ratio=coverage.ratio)
+            envelope["diagnostics"]["qpp"] = guidance_diagnostics.qpp_projection(signals)
     requested = req.get("budget_tokens")
     return budget.apply_budget(envelope, requested) if requested is not None else envelope
 
@@ -635,10 +657,15 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                 return
             try:
                 req = json.loads(line)
+                protocol = req.get("guidance_protocol")
+                if protocol is not None and (type(protocol) is not int or protocol != 1):
+                    raise ValueError("unsupported guidance protocol")
                 if req.get("cmd") == "ping":
                     resp = {"ok": True, "pong": True}
                 else:
                     resp = {"ok": True, "results": search_request(req)}
+                    if protocol == 1:
+                        resp["guidance_protocol"] = 1
             except Exception as exc:  # protocol boundary: report, don't crash server
                 resp = {"ok": False, "error": str(exc)}
             resp["instance_id"] = instance_id
