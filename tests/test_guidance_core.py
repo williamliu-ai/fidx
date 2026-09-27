@@ -148,6 +148,40 @@ def test_fts_vocabulary_uses_porter_df_phrase_terms_and_legacy_read_only_db(tmp_
         conn.close()
 
 
+def test_term_coverage_counts_only_active_documents_in_requested_collections(tmp_path):
+    path = tmp_path / "scoped.db"
+    alpha, beta = tmp_path / "alpha", tmp_path / "beta"
+    alpha.mkdir(); beta.mkdir()
+    (alpha / "a.md").write_text("running running quickly")
+    (alpha / "b.md").write_text("running twice")
+    (alpha / "old.md").write_text("retired retired")
+    (beta / "c.md").write_text("deployment running")
+    conn = db.connect(path)
+    db.init_schema(conn)
+    for name, root in (("alpha", alpha), ("beta", beta)):
+        indexer.add_collection(conn, name, root)
+        indexer.sync_collection(conn, vector_store.NullStore(), name, indexer.IndexStats())
+    conn.execute("UPDATE documents SET active = 0 WHERE collection = 'alpha' AND relpath = 'old.md'")
+    conn.commit()
+    conn.close()
+    conn = db.connect(path, create=False, read_only=True)
+    try:
+        scoped = guidance.term_coverage(conn, "runs deployment retired", collections=["alpha"])
+        assert scoped.term_df == {"runs": 2, "deployment": 0, "retired": 0}
+        assert scoped.matched == ("runs",)
+        assert scoped.unmatched == ("deployment", "retired")
+        assert scoped.ratio == pytest.approx(1 / 3)
+        global_coverage = guidance.term_coverage(conn, "runs deployment retired")
+        assert global_coverage.term_df == {"runs": 3, "deployment": 1, "retired": 0}
+        unknown = guidance.term_coverage(conn, "runs", collections=["missing"])
+        assert unknown.term_df == {"runs": 0} and unknown.ratio == 0
+        mixed = guidance.term_coverage(conn, "runs", collections=["alpha", "missing"])
+        assert mixed.term_df == {"runs": 2}
+        assert conn.execute("PRAGMA query_only").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_qpp_score_shapes_empty_single_flat_cliff_and_ties():
     empty = guidance.score_shape([])
     assert empty.nqc_like == empty.wig_like == empty.top_gap == empty.head_concentration == 0
