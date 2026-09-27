@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import string
 import shutil
 import sys
 import tempfile
@@ -24,22 +25,29 @@ from . import __version__, config, daemon, db, errors, indexer, vector_store
 from .embedder import FastEmbedder
 
 
-def open_index(db_path: Path, profile_name: str | None = None):
-    """Open (or create) an index, returning (conn, profile).
+def open_index(db_path: Path, profile_name: str | None = None, *, create: bool = True):
+    """Open an index, optionally creating it, returning (conn, profile).
 
     Once embeddings exist, the index pins its profile in meta; a conflicting
     --profile is an error rather than a silent dim mismatch.
     """
-    conn = db.connect(db_path)
-    db.init_schema(conn)
-    stored = db.get_meta(conn, "embed_profile")
-    if stored is not None and profile_name and profile_name != stored:
-        raise click.ClickException(
-            f"index {db_path} is pinned to profile {stored!r}; "
-            f"re-index into a fresh --db to use {profile_name!r}"
-        )
-    profile = config.get_profile(stored or profile_name)
-    return conn, profile
+    conn = db.connect(db_path) if create else db.connect(db_path, create=False)
+    try:
+        if create:
+            db.init_schema(conn)
+        else:
+            db.validate_index(conn)
+        stored = db.get_meta(conn, "embed_profile")
+        if stored is not None and profile_name and profile_name != stored:
+            raise click.ClickException(
+                f"index {db_path} is pinned to profile {stored!r}; "
+                f"re-index into a fresh --db to use {profile_name!r}"
+            )
+        profile = config.get_profile(stored or profile_name)
+        return conn, profile
+    except Exception:
+        conn.close()
+        raise
 
 
 def _json_requested(args: list[str]) -> bool:
@@ -210,7 +218,7 @@ def collection_add(ctx: click.Context, root: Path, name: str, globs: tuple[str, 
 @collection.command("list")
 @click.pass_context
 def collection_list(ctx: click.Context) -> None:
-    conn, _ = open_index(ctx.obj["db_path"])
+    conn, _ = open_index(ctx.obj["db_path"], create=False)
     for row in conn.execute("SELECT name, root, globs FROM collections ORDER BY name"):
         count = conn.execute("SELECT count(*) AS n FROM documents WHERE collection = ?",
                              (row["name"],)).fetchone()["n"]
@@ -221,7 +229,7 @@ def collection_list(ctx: click.Context) -> None:
 @click.argument("name")
 @click.pass_context
 def collection_remove(ctx: click.Context, name: str) -> None:
-    conn, _ = open_index(ctx.obj["db_path"])
+    conn, _ = open_index(ctx.obj["db_path"], create=False)
     store = vector_store.open_store(conn, ctx.obj["db_path"])
     indexer.remove_collection(conn, store, name)
     click.echo(f"removed collection {name!r}")
@@ -251,6 +259,7 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
     """Scan collections and (re)build chunks + embeddings incrementally."""
     db_path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, profile)
+    db.ensure_instance_id(conn)
     stored_backend = db.get_meta(conn, "vector_backend")
     store = vector_store.make_store(backend or stored_backend or "sqlite-vec", conn, db_path)
     names = [only] if only else [r["name"] for r in conn.execute("SELECT name FROM collections")]
@@ -345,19 +354,24 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
       Use --truncate only when the JSON truncation_advice recommends it.
     """
     db_path: Path = ctx.obj["db_path"]
+    conn, prof = open_index(db_path, create=False)
+    instance_id = db.get_meta(conn, "instance_id")
     req = {"cmd": "search", "query": query, "mode": mode,
            "collections": list(collections), "limit": limit, "min_score": min_score,
            "truncate": truncate}
 
     payload: dict | None = None
+    stale_daemon = False
     if not no_daemon:
         resp = daemon.client_request(db_path, req)
         if resp is not None and resp.get("ok"):
-            candidate = resp.get("results")
-            if isinstance(candidate, dict) and candidate.get("schema") == daemon.SEARCH_SCHEMA:
-                payload = candidate
+            if resp.get("instance_id") != instance_id:
+                stale_daemon = True
+            else:
+                candidate = resp.get("results")
+                if isinstance(candidate, dict) and candidate.get("schema") == daemon.SEARCH_SCHEMA:
+                    payload = candidate
     if payload is None:
-        conn, prof = open_index(db_path)
         store = vector_store.open_store(conn, db_path)
         has_documents = conn.execute(
             "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
@@ -367,6 +381,11 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
             payload = daemon.run_search(conn, store, embedder, req)
         except ValueError as exc:
             raise click.ClickException(str(exc))
+    if stale_daemon:
+        payload["diagnostics"]["execution"] = {
+            "daemon": "stale_instance",
+            "message": "Restart fidx serve to use the current index database.",
+        }
 
     if as_json or ctx.obj["error_json"]:
         click.echo(json.dumps(payload, ensure_ascii=False))
@@ -388,10 +407,25 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
 @click.pass_context
 def get(ctx: click.Context, target: str, full: bool) -> None:
     """Print a document by path (collection/relpath) or docid (#abc123)."""
-    conn, _ = open_index(ctx.obj["db_path"])
+    conn, _ = open_index(ctx.obj["db_path"], create=False)
     if target.startswith("#"):
-        row = conn.execute("SELECT body, collection, relpath FROM documents WHERE hash LIKE ?",
-                           (target[1:] + "%",)).fetchone()
+        prefix = target[1:]
+        if not prefix or any(ch not in string.hexdigits for ch in prefix):
+            raise click.ClickException(f"document {target!r} not found")
+        matches = conn.execute(
+            "SELECT body, collection, relpath, hash FROM documents WHERE hash LIKE ? "
+            "ORDER BY collection, relpath LIMIT 11", (prefix + "%",)
+        ).fetchall()
+        if len(matches) > 1:
+            raise errors.AmbiguousReference(
+                f"document reference {target!r} matches multiple documents",
+                candidates=[
+                    {"docid": "#" + match["hash"][:6],
+                     "collection": match["collection"], "relpath": match["relpath"]}
+                    for match in matches[:10]
+                ],
+            )
+        row = matches[0] if matches else None
     else:
         coll, _, rel = target.partition("/")
         row = conn.execute("SELECT body, collection, relpath FROM documents "
@@ -409,7 +443,7 @@ def get(ctx: click.Context, target: str, full: bool) -> None:
 def status(ctx: click.Context) -> None:
     """Index health: collections, documents, chunks, vectors, size."""
     db_path: Path = ctx.obj["db_path"]
-    conn, prof = open_index(db_path)
+    conn, prof = open_index(db_path, create=False)
     docs = conn.execute("SELECT count(*) AS n FROM documents").fetchone()["n"]
     chunks = conn.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"]
     store = vector_store.open_store(conn, db_path)
@@ -421,7 +455,10 @@ def status(ctx: click.Context) -> None:
     click.echo(f"db: {db_path} ({size_mb:.1f} MB)")
     click.echo(f"profile: {prof.name} ({prof.model}, {prof.dim}d)  backend: {store.name}")
     click.echo(f"documents: {docs}  chunks: {chunks}  vectors: {vecs}")
-    daemon_state = "running" if daemon.client_request(db_path, {"cmd": "ping"}) else "not running"
+    response = daemon.client_request(db_path, {"cmd": "ping"})
+    daemon_state = ("running" if response and response.get("ok") and
+                    response.get("instance_id") == db.get_meta(conn, "instance_id")
+                    else "not running")
     click.echo(f"daemon: {daemon_state}")
     for row in conn.execute("SELECT collection, count(*) AS n FROM documents GROUP BY collection"):
         click.echo(f"  {row['collection']}: {row['n']} docs")
@@ -433,7 +470,7 @@ def status(ctx: click.Context) -> None:
 @click.pass_context
 def serve(ctx: click.Context, threads: int | None) -> None:
     """Run the warm-search daemon (foreground). Searches then take ~ms."""
-    conn, prof = open_index(ctx.obj["db_path"])
+    conn, prof = open_index(ctx.obj["db_path"], create=False)
     store = vector_store.open_store(conn, ctx.obj["db_path"])
     daemon.serve(ctx.obj["db_path"], conn, store,
                  FastEmbedder(prof, threads=threads, local_files_only=True))
@@ -463,7 +500,7 @@ def calibrate(ctx: click.Context, sample: int, target: float, reject: float,
     """
     from . import calibrate as calibratemod
     db_path: Path = ctx.obj["db_path"]
-    conn, prof = open_index(db_path)
+    conn, prof = open_index(db_path, create=False)
     vstore = vector_store.open_store(conn, db_path)
     res = calibratemod.calibrate(
         conn, vstore, FastEmbedder(prof, local_files_only=True), sample=sample,

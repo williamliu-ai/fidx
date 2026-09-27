@@ -546,6 +546,7 @@ def run_search(conn, store, embedder, req: dict) -> dict:
 
 
 def serve(db_path: Path, conn, store, embedder) -> None:
+    instance_id = get_meta(conn, "instance_id")
     sock_path = _prepare_socket_path(db_path)
     if sock_path.exists() or sock_path.is_symlink():
         if not sock_path.is_socket():
@@ -565,6 +566,7 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                     resp = {"ok": True, "results": run_search(conn, store, embedder, req)}
             except Exception as exc:  # protocol boundary: report, don't crash server
                 resp = {"ok": False, "error": str(exc)}
+            resp["instance_id"] = instance_id
             self.wfile.write((json.dumps(resp) + "\n").encode())
 
     # Warm the model before accepting connections.

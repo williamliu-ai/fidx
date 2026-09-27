@@ -180,6 +180,20 @@ The index statuses and ambiguous-reference status are reserved for the
 corresponding fail-closed read paths. `doctor --json` always emits its own
 diagnostic report, even when it exits 1.
 
+Only `collection add` and `index` create a database. `search`, `get`, `status`,
+`serve`, `calibrate`, `collection list`, and `collection remove` require an
+existing fidx index. A missing or invalid index exits 3 with actions to
+register a collection and build the index; a typo in `--db` cannot yield an
+`empty_index` search result. If a running daemon belongs to a database that
+has since been replaced, search reads the current database and reports a
+daemon-restart hint in `diagnostics.execution`. An older index without an
+instance ID remains usable; the next `index` run adds one.
+
+`get "#prefix"` exits 6 when the prefix identifies more than one document.
+Its JSON error lists up to ten matching collection paths, including files
+with identical content and the same docid. Use a collection path to choose
+one of those files.
+
 ### Choosing result truncation
 
 By default, `fidx search` returns the top `-n` ranked results with no tail

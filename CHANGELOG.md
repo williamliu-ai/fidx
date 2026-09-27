@@ -20,6 +20,13 @@ All notable changes to fidx are documented here. The format follows
   models from local files only. On a cold cache they exit with a `fidx models
   fetch embed` hint instead of implicitly downloading. A valid empty index
   returns `empty_index` without constructing an embedder.
+- Search, get, status, serve, calibrate, and collection list/remove now require
+  an existing valid fidx index. These commands no longer create an index from
+  a missing path or add schema tables to an unrelated SQLite file; they exit
+  3 with create-side actions instead. Search validates the database before
+  using a daemon and ignores daemon results for a replaced database.
+- `get "#prefix"` now exits 6 with matching paths when more than one document
+  has the prefix, instead of silently returning the first match.
 
 ## [0.1.2] - 2026-07-07
 
