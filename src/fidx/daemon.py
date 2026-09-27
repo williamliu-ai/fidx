@@ -23,7 +23,9 @@ import socketserver
 import sys
 import threading
 from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from . import budget, config, db, freshness, search as searchmod, vector_store
 from .db import get_meta
@@ -674,3 +676,80 @@ def client_request(db_path: Path, req: dict, timeout: float = 30.0) -> dict | No
         return json.loads(buf) if buf else None
     except (OSError, json.JSONDecodeError):
         return None
+
+
+@dataclass(frozen=True)
+class ClientOutcome:
+    """Internal routing evidence for a future guidance-aware CLI caller."""
+
+    path: Literal["daemon", "cold"]
+    response: dict | None = None
+    fallback_cause: str | None = None
+    daemon_error: str | None = None
+    stale_instance: bool = False
+
+
+def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
+                           expected_instance_id: str | None = None,
+                           require_guidance_protocol: bool = False) -> ClientOutcome:
+    """Classify a daemon attempt without changing the legacy client contract.
+
+    A protocol request deliberately fails closed against a daemon that cannot
+    acknowledge it. The server only gains that acknowledgement when guidance
+    fields are implemented; this internal seam does not advertise them.
+    """
+    if (req.get("cmd") == "search" and
+            (not isinstance(expected_instance_id, str) or not expected_instance_id)):
+        raise ValueError("search outcome requires expected_instance_id")
+    if not hasattr(socketserver, "UnixStreamServer"):
+        return ClientOutcome("cold")
+    sock_path = socket_path_for(db_path)
+    if not sock_path.exists():
+        return ClientOutcome("cold")
+    wire_req = dict(req)
+    if require_guidance_protocol:
+        wire_req["guidance_protocol"] = 1
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect(str(sock_path))
+            s.sendall((json.dumps(wire_req) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                data = s.recv(65536)
+                if not data:
+                    break
+                buf += data
+    except ConnectionRefusedError:
+        return ClientOutcome("cold", fallback_cause="connect_refused")
+    except TimeoutError:
+        return ClientOutcome("cold", fallback_cause="timeout")
+    except OSError:
+        return ClientOutcome("cold", fallback_cause="transport_error")
+    if not buf.endswith(b"\n"):
+        return ClientOutcome("cold", fallback_cause="malformed_response")
+    try:
+        response = json.loads(buf)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return ClientOutcome("cold", fallback_cause="malformed_response")
+    if not isinstance(response, dict):
+        return ClientOutcome("cold", fallback_cause="malformed_response")
+    if response.get("ok") is False:
+        error = response.get("error")
+        if isinstance(error, str) and error:
+            return ClientOutcome("cold", fallback_cause="daemon_error", daemon_error=error)
+        return ClientOutcome("cold", fallback_cause="malformed_response")
+    if response.get("ok") is not True:
+        return ClientOutcome("cold", fallback_cause="malformed_response")
+    if (expected_instance_id is not None and
+            response.get("instance_id") != expected_instance_id):
+        return ClientOutcome("cold", stale_instance=True)
+    if req.get("cmd") == "search":
+        candidate = response.get("results")
+        if not isinstance(candidate, dict) or candidate.get("schema") != SEARCH_SCHEMA:
+            return ClientOutcome("cold", fallback_cause="malformed_response")
+    if (require_guidance_protocol and
+            (type(response.get("guidance_protocol")) is not int or
+             response["guidance_protocol"] != 1)):
+        return ClientOutcome("cold", fallback_cause="malformed_response")
+    return ClientOutcome("daemon", response=response)
