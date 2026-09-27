@@ -23,7 +23,7 @@ import socketserver
 import sys
 from pathlib import Path
 
-from . import search as searchmod
+from . import budget, search as searchmod
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
@@ -541,8 +541,10 @@ def run_search(conn, store, embedder, req: dict) -> dict:
     elif truncate:
         from . import truncate as truncatemod
         results = truncatemod.truncate(results, truncate, mode)
-    return _agent_envelope(conn, req, mode, collections, limit, min_score, truncate,
-                           raw, after_min, results)
+    envelope = _agent_envelope(conn, req, mode, collections, limit, min_score, truncate,
+                               raw, after_min, results)
+    requested = req.get("budget_tokens")
+    return budget.apply_budget(envelope, requested) if requested is not None else envelope
 
 
 def serve(db_path: Path, conn, store, embedder) -> None:

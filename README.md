@@ -123,6 +123,7 @@ fidx search "old retry decision" --truncate calibrated  # corpus-calibrated abst
 
 # Agent-friendly output: results plus diagnostics and suggested follow-up calls
 fidx search "error handling" --json -n 10
+fidx search "error handling" --json -n 10 --budget-tokens 800
 fidx search "auth" --files --min-score 0.02
 
 # Fetch a document by path or docid
@@ -378,6 +379,22 @@ candidates, drop or fix a bad collection scope listed in
 use `--mode lexical` for exact names/paths/errors, use `--mode vector` for
 synonym-heavy wording, or run `fidx collection add` + `fidx index` if
 `diagnostics.index_empty` is true.
+
+For a smaller JSON response, add `--budget-tokens N`. The estimate is
+`ceil(compact UTF-8 JSON bytes / 4)`, not a model tokenizer count. The budget
+processor drops optional guidance, snippets, titles, advice, diagnostics, and
+per-result details in a fixed order before removing trailing results; it never
+reorders the retained results. `summary.budget` reports the requested and
+estimated token counts, dropped fields, and `over_minimum` when the required
+floor exceeds the request. The floor retains the query, status, request,
+summary scalars, and at least the top result's path, identity, rank, and score.
+For `no_results` and `empty_index`, follow-up `next_actions` and any ranked
+absence causes remain available even at tiny budgets. `summary.result_count`
+continues to describe the search before output trimming; use
+`summary.budget.dropped.results` to see how many trailing results were omitted.
+When `summary.budget` is present, fields outside this floor may be absent;
+consumers of `fidx.search.v2` should tolerate absent optional fields and
+ignore unknown additive fields.
 
 ## Verifying your install
 

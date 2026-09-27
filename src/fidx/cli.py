@@ -21,7 +21,7 @@ from pathlib import Path
 
 import click
 
-from . import __version__, config, daemon, db, errors, indexer, vector_store
+from . import __version__, budget, config, daemon, db, errors, indexer, vector_store
 from .embedder import FastEmbedder
 
 
@@ -335,11 +335,13 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
 @click.option("--truncate", default=None,
               help="Deterministic tail truncation, e.g. ratio:0.5, gap:0.5, knee, "
                    "mad:3, source:0.4,0.2. See fidx/truncate.py.")
+@click.option("--budget-tokens", type=click.IntRange(min=0), default=None,
+              help="Estimate a compact JSON response budget; requires --json.")
 @click.option("--no-daemon", is_flag=True, help="Skip the warm daemon even if running.")
 @click.pass_context
 def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: int,
            mode: str, as_json: bool, files_only: bool, min_score: float | None,
-           truncate: str | None, no_daemon: bool) -> None:
+           truncate: str | None, budget_tokens: int | None, no_daemon: bool) -> None:
     """Search the index. Default mode is hybrid (best recall).
 
     \b
@@ -352,7 +354,10 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
       Use --mode vector for synonym-heavy or conceptual wording.
       Use -c/--collection to scope to memory, docs, code or another source.
       Use --truncate only when the JSON truncation_advice recommends it.
+      Use --budget-tokens with --json to trim presentation fields in rank order.
     """
+    if budget_tokens is not None and not (as_json or ctx.obj["error_json"]):
+        raise click.UsageError("--budget-tokens requires --json")
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, create=False)
     instance_id = db.get_meta(conn, "instance_id")
@@ -386,9 +391,12 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
             "daemon": "stale_instance",
             "message": "Restart fidx serve to use the current index database.",
         }
+    if budget_tokens is not None:
+        payload = budget.apply_budget(payload, budget_tokens)
 
     if as_json or ctx.obj["error_json"]:
-        click.echo(json.dumps(payload, ensure_ascii=False))
+        click.echo(budget.canonical_compact_json(payload) if budget_tokens is not None
+                   else json.dumps(payload, ensure_ascii=False))
     elif files_only:
         for r in payload["results"]:
             click.echo(r["path"])

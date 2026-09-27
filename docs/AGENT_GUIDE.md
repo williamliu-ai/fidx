@@ -87,6 +87,7 @@ Search and fetch:
 
 ```sh
 fidx search "what did we decide about retry handling?" -c memory --json -n 5
+fidx search "what did we decide about retry handling?" -c memory --json -n 5 --budget-tokens 800
 fidx search "exact error code E1234" -c code --mode lexical --json
 fidx search "conceptual description with different wording" -c docs --mode vector --json
 fidx search "where is request timeout handled?" -c code --files -n 20
@@ -144,6 +145,20 @@ these fields before retrying:
 - `diagnostics.filters`: whether `--min-score` or truncation removed candidates
 - `diagnostics.calibration`: whether calibrated truncation has a stored floor
 - `next_actions`: runnable follow-up commands
+
+Use `--budget-tokens N` with `--json` when a tool call has limited context.
+`summary.budget.estimated_used` is an estimate from compact UTF-8 JSON bytes
+divided by four and rounded up; it is not a model tokenizer count. The
+processor first removes optional guidance, then snippets and titles from the
+lowest-ranked result upward, then advice, optional actions and diagnostics,
+per-result source/location detail, and finally trailing results down to one.
+It preserves result order, score, path, and identity. The request and summary
+scalars remain; `summary.result_count` describes the search before output
+trimming, while `summary.budget.dropped.results` counts omitted trailing hits.
+For `no_results` and `empty_index`, `next_actions` and any ranked absence
+causes remain even if `summary.budget.over_minimum` is true. When budgeting is
+active, all fields outside the required floor are optional. Handle absent
+optional fields and ignore unknown additive `fidx.search.v2` fields.
 
 If `results` is empty:
 
