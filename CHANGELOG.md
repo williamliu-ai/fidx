@@ -6,6 +6,17 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `fidx models fetch embed [--profile NAME]` acquires an embedding model
+  explicitly and prints its cache path. `fidx doctor` now reports whether the
+  default embedding profile is available locally.
+
+### Changed
+- Hybrid/vector search, daemon startup, and calibration now load embedding
+  models from local files only. On a cold cache they exit with a `fidx models
+  fetch embed` hint instead of implicitly downloading. A valid empty index
+  returns `empty_index` without constructing an embedder.
+
 ## [0.1.2] - 2026-07-07
 
 ### Added

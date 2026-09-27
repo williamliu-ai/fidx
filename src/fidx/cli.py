@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 
 from . import __version__, config, daemon, db, indexer, vector_store
-from .embedder import FastEmbedder
+from .embedder import FastEmbedder, ModelUnavailableError
 
 
 def open_index(db_path: Path, profile_name: str | None = None):
@@ -89,6 +89,29 @@ def doctor(as_json: bool) -> None:
         raise SystemExit(1)
     if not as_json:
         click.echo("\nAll hard checks passed — fidx is ready.")
+
+
+@main.group()
+def models() -> None:
+    """Manage locally cached models."""
+
+
+@models.command("fetch")
+@click.argument("target", type=click.Choice(["embed", "rerank"]), default="embed")
+@click.option("--profile", default=None, help="Embedding profile to fetch.")
+def models_fetch(target: str, profile: str | None) -> None:
+    """Fetch an embedding model for offline search."""
+    if target == "rerank":
+        raise click.ClickException("rerank model fetch is available when reranking is enabled")
+    try:
+        prof = config.get_profile(profile)
+    except KeyError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        cache = FastEmbedder(prof).fetch()
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(f"could not fetch embedding model {prof.model!r}: {exc}") from exc
+    click.echo(f"fetched embedding model {prof.model} [{prof.name}] into {cache}")
 
 
 @main.group()
@@ -264,10 +287,13 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
     if payload is None:
         conn, prof = open_index(db_path)
         store = vector_store.open_store(conn, db_path)
-        embedder = FastEmbedder(prof) if mode in ("vector", "hybrid") else None
+        has_documents = conn.execute(
+            "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
+        embedder = (FastEmbedder(prof, local_files_only=True)
+                    if has_documents and mode in ("vector", "hybrid") else None)
         try:
             payload = daemon.run_search(conn, store, embedder, req)
-        except ValueError as exc:
+        except (ValueError, ModelUnavailableError) as exc:
             raise click.ClickException(str(exc))
 
     if as_json:
@@ -337,7 +363,11 @@ def serve(ctx: click.Context, threads: int | None) -> None:
     """Run the warm-search daemon (foreground). Searches then take ~ms."""
     conn, prof = open_index(ctx.obj["db_path"])
     store = vector_store.open_store(conn, ctx.obj["db_path"])
-    daemon.serve(ctx.obj["db_path"], conn, store, FastEmbedder(prof, threads=threads))
+    try:
+        daemon.serve(ctx.obj["db_path"], conn, store,
+                     FastEmbedder(prof, threads=threads, local_files_only=True))
+    except ModelUnavailableError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @main.command()
@@ -366,8 +396,12 @@ def calibrate(ctx: click.Context, sample: int, target: float, reject: float,
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path)
     vstore = vector_store.open_store(conn, db_path)
-    res = calibratemod.calibrate(conn, vstore, FastEmbedder(prof), sample=sample,
-                                 target=target, reject=reject, dropout=dropout, seed=seed)
+    try:
+        res = calibratemod.calibrate(
+            conn, vstore, FastEmbedder(prof, local_files_only=True), sample=sample,
+            target=target, reject=reject, dropout=dropout, seed=seed)
+    except ModelUnavailableError as exc:
+        raise click.ClickException(str(exc)) from exc
     if not res.get("n_pos"):
         raise click.ClickException(res.get("note", "calibration produced no samples"))
     click.echo(f"positives n={res['n_pos']} (p5={res['pos_p5']} median={res['pos_median']})  "

@@ -75,6 +75,7 @@ candidate sources quickly.
 
 ```sh
 fidx doctor
+fidx models fetch embed  # acquire the default model before offline search
 fidx collection add ./memory --name memory --glob "**/*.md" --glob "**/*.txt" --glob "**/*.jsonl"
 fidx collection add ./docs --name docs --glob "**/*.md" --glob "**/*.txt"
 fidx collection add ./src --name code --glob "**/*.py" --glob "**/*.ts" --glob "**/*.go" --glob "**/*.rs"

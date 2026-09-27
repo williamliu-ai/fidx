@@ -509,7 +509,12 @@ def run_search(conn, store, embedder, req: dict) -> dict:
     collections = list(req.get("collections") or [])
     search_collections = collections or None
     limit = int(req.get("limit", 10))
-    if mode == "lexical":
+    # A valid empty index has no vectors to query. Skip model loading entirely,
+    # including on machines whose embedding cache is still cold.
+    if mode in ("lexical", "vector", "hybrid") and not conn.execute(
+        "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone():
+        raw = []
+    elif mode == "lexical":
         raw = searchmod.search_lexical(conn, query, search_collections, limit)
     elif mode == "vector":
         raw = searchmod.search_vector(conn, store, embedder, query, search_collections, limit)

@@ -14,6 +14,9 @@ CLI commands that never embed (get, status, lexical search) pay no model cost.
 
 from __future__ import annotations
 
+import os
+import warnings
+from pathlib import Path
 from typing import Iterable, Protocol, Sequence
 
 import numpy as np
@@ -55,14 +58,15 @@ class Embedder(Protocol):
     def embed_queries(self, texts: Sequence[str]) -> np.ndarray: ...
 
 
+class ModelUnavailableError(RuntimeError):
+    """The selected embedding model cannot be loaded from local files."""
+
+
 class FastEmbedder:
-    """fastembed-backed embedder. Model download happens on first use and is
-    cached under ~/.cache/fidx/models (or FASTEMBED_CACHE_PATH)."""
+    """fastembed-backed embedder, with explicit local-only query loading."""
 
     def __init__(self, profile: EmbedProfile, threads: int | None = None,
-                 parallel: int | None = None):
-        import os
-
+                 parallel: int | None = None, local_files_only: bool = False):
         self.profile = profile
         if threads is None and os.environ.get("FIDX_THREADS"):
             threads = int(os.environ["FIDX_THREADS"])
@@ -70,37 +74,72 @@ class FastEmbedder:
         # Data-parallel workers for bulk (indexing) embeds; 0 = all cores.
         # Queries always run in-process — worker spawn would dominate latency.
         self._parallel = parallel
+        self._local_files_only = local_files_only
         self._model = None
+
+    @staticmethod
+    def cache_path() -> Path:
+        cache = os.environ.get("FASTEMBED_CACHE_PATH")
+        if cache:
+            return Path(cache).expanduser()
+        xdg = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+        return Path(xdg).expanduser() / "fidx" / "models"
+
+    def _build_model(self, *, lazy_load: bool = False):
+        from fastembed import TextEmbedding
+
+        if self.profile.hf_source:
+            from fastembed.common.model_description import ModelSource, PoolingType
+
+            known = {m["model"] for m in TextEmbedding.list_supported_models()}
+            if self.profile.model not in known:
+                TextEmbedding.add_custom_model(
+                    model=self.profile.model,
+                    pooling=PoolingType.MEAN,
+                    normalization=True,
+                    sources=ModelSource(hf=self.profile.hf_source),
+                    dim=self.profile.dim,
+                    model_file=self.profile.model_file or "onnx/model.onnx",
+                )
+
+        return TextEmbedding(
+            model_name=self.profile.model,
+            cache_dir=str(self.cache_path()),
+            threads=self._threads,
+            local_files_only=self._local_files_only,
+            lazy_load=lazy_load,
+        )
+
+    def fetch(self) -> Path:
+        """Download/cache the selected model without loading an ONNX session."""
+        self._build_model(lazy_load=True)
+        return self.cache_path()
+
+    def available_locally(self) -> bool:
+        """Check this profile's cache without downloading or loading ONNX."""
+        if not self._local_files_only:
+            raise ValueError("availability check requires local_files_only=True")
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                model = self._build_model(lazy_load=True)
+            inner = model.model
+            return (Path(inner._model_dir) / inner.model_description.model_file).is_file()
+        except Exception:  # doctor must report broken dependencies, not crash
+            return False
 
     def _ensure_model(self):
         if self._model is None:
-            import os
-
-            from fastembed import TextEmbedding
-
-            if self.profile.hf_source:
-                from fastembed.common.model_description import ModelSource, PoolingType
-
-                known = {m["model"] for m in TextEmbedding.list_supported_models()}
-                if self.profile.model not in known:
-                    TextEmbedding.add_custom_model(
-                        model=self.profile.model,
-                        pooling=PoolingType.MEAN,
-                        normalization=True,
-                        sources=ModelSource(hf=self.profile.hf_source),
-                        dim=self.profile.dim,
-                        model_file=self.profile.model_file or "onnx/model.onnx",
-                    )
-
-            cache_dir = os.environ.get("FASTEMBED_CACHE_PATH")
-            if not cache_dir:
-                xdg = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-                cache_dir = os.path.join(xdg, "fidx", "models")
-            self._model = TextEmbedding(
-                model_name=self.profile.model,
-                cache_dir=cache_dir,
-                threads=self._threads,
-            )
+            try:
+                self._model = self._build_model()
+            except Exception as exc:
+                if self._local_files_only:
+                    raise ModelUnavailableError(
+                        f"embedding model {self.profile.model!r} for profile "
+                        f"{self.profile.name!r} is unavailable locally; run "
+                        f"`fidx models fetch embed --profile {self.profile.name}`"
+                    ) from exc
+                raise
             tokenizer = getattr(self._model.model, "tokenizer", None)
             if tokenizer is not None:
                 _cap_tokenizer(tokenizer)

@@ -46,6 +46,7 @@ embedding pass per query is the only model work.
   **FTS5** (fidx loads the `sqlite-vec` extension). Run `fidx doctor` to verify.
 - Prebuilt wheels exist for the verified platforms below — **no compiler needed**.
 - First `fidx index` downloads the embedding model once (then fully offline).
+  You can also fetch it ahead of time with `fidx models fetch embed`.
 
 | Platform (triple) | Status | Notes |
 |---|---|---|
@@ -109,6 +110,10 @@ fidx collection add ~/mail/export --name emails --glob "**/*.txt"
 # Scan + chunk + embed (incremental; first run downloads the ONNX model)
 fidx index
 
+# Optional: acquire a model before searching an existing index on a new machine
+fidx models fetch embed
+# For an index created with another profile: fidx models fetch embed --profile bge-384
+
 # Search (hybrid BM25 + vector by default)
 fidx search "the doc that discussed the most recent indexing project"
 fidx search "Grace Hopper" --mode lexical      # exact-name lookup, no model load
@@ -142,6 +147,14 @@ fidx search "..."     # all searches now take milliseconds
 The CLI uses the daemon automatically when it is running; `--no-daemon` opts out.
 The daemon socket is created in a per-user runtime/cache directory with
 owner-only permissions.
+
+Search, daemon startup, and `fidx calibrate` only load models already cached on
+this machine. If a model is missing, the command exits with a `fidx models fetch
+embed --profile ...` hint; it does not download in the query path. Run that
+fetch command while online, or run `fidx index`, before using these commands
+offline. `fidx doctor --json` reports the default embedding profile's local
+availability in its `embedding_model` row. `fidx models fetch rerank` is reserved
+for the optional reranker and is unavailable in this release.
 
 ### Choosing result truncation
 

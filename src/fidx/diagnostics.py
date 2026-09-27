@@ -13,7 +13,6 @@ missing or built for the wrong architecture.
 """
 from __future__ import annotations
 
-import os
 import platform
 import sqlite3
 from dataclasses import dataclass, field
@@ -102,15 +101,31 @@ def capabilities() -> list[Check]:
             remediation="Resolve load_extension first.", hard=True,
         ))
 
-    # Embedding model cache (soft: download happens on first index).
-    cache = os.environ.get("FASTEMBED_CACHE_PATH")
-    if not cache:
-        xdg = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
-        cache = os.path.join(xdg, "fidx", "models")
-    present = os.path.isdir(cache) and any(os.scandir(cache))
+    # Cache presence is a broad hint; the profile-specific probe below checks
+    # fastembed's own local-only resolver without loading an ONNX session.
+    from .config import get_profile
+    from .embedder import FastEmbedder
+
+    cache = FastEmbedder.cache_path()
+    present = cache.is_dir() and any(cache.iterdir())
     checks.append(Check(
         "model_cache", True,
-        f"{cache} ({'model present' if present else 'empty — first index downloads it (network once)'})",
+        f"{cache} ({'files present' if present else 'empty — fetch or index downloads a model'})",
+    ))
+    try:
+        profile = get_profile()
+    except KeyError as exc:
+        checks.append(Check(
+            "embedding_model", False, str(exc),
+            remediation="Choose a known embedding profile with FIDX_PROFILE.",
+        ))
+        return checks
+    available = FastEmbedder(profile, local_files_only=True).available_locally()
+    checks.append(Check(
+        "embedding_model", available,
+        f"{profile.name} ({profile.model}) {'cached' if available else 'unavailable locally'}",
+        remediation="" if available else
+        f"Run `fidx models fetch embed --profile {profile.name}` while online.",
     ))
 
     return checks
