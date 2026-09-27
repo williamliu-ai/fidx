@@ -23,7 +23,6 @@ import click
 
 from . import __version__, budget, config, daemon, db, errors, indexer, vector_store
 from .embedder import FastEmbedder
-from .locking import index_lock
 
 
 def open_index(db_path: Path, profile_name: str | None = None, *, create: bool = True):
@@ -258,15 +257,6 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
           parallel: int | None, backend: str | None, do_calibrate: bool,
           recalibrate_after: float) -> None:
     """Scan collections and (re)build chunks + embeddings incrementally."""
-    db_path = ctx.obj["db_path"]
-    with index_lock(db_path):
-        _index_unlocked(ctx, only, profile, threads, parallel, backend,
-                        do_calibrate, recalibrate_after)
-
-
-def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
-                    threads: int | None, parallel: int | None, backend: str | None,
-                    do_calibrate: bool, recalibrate_after: float) -> None:
     db_path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, profile)
     db.ensure_instance_id(conn)
