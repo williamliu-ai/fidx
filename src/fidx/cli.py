@@ -21,7 +21,7 @@ from pathlib import Path
 
 import click
 
-from . import __version__, budget, config, daemon, db, errors, indexer, vector_store
+from . import __version__, budget, config, daemon, db, errors, freshness, indexer, vector_store
 from .embedder import FastEmbedder
 
 
@@ -319,6 +319,7 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
                 # change count so it isn't lost, and retry next index.
                 db.set_meta(conn, "calib_changes", str(pending))
                 click.echo("calibration deferred (insufficient samples)")
+    db.set_meta(conn, "last_index_completed_at", freshness.completed_at())
 
 
 @main.command()

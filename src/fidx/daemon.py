@@ -23,7 +23,7 @@ import socketserver
 import sys
 from pathlib import Path
 
-from . import budget, search as searchmod
+from . import budget, freshness, search as searchmod
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
@@ -485,19 +485,23 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
     truncation_advice = _truncation_advice(
         req["query"], mode, collections, limit, min_score, truncate, after_min,
         final, diagnostics)
+    summary = {
+        "result_count": len(final),
+        "confidence": _confidence(final, mode),
+        "limit_reached": len(final) >= limit,
+        "top_score": top_score,
+        "source_mix": _source_mix(final, mode),
+        "truncation_advice": truncation_advice,
+    }
+    index = freshness.index_summary(conn)
+    if index is not None:
+        summary["index"] = index
     return {
         "schema": SEARCH_SCHEMA,
         "query": req["query"],
         "status": status,
         "request": request,
-        "summary": {
-            "result_count": len(final),
-            "confidence": _confidence(final, mode),
-            "limit_reached": len(final) >= limit,
-            "top_score": top_score,
-            "source_mix": _source_mix(final, mode),
-            "truncation_advice": truncation_advice,
-        },
+        "summary": summary,
         "results": results,
         "diagnostics": diagnostics,
         "next_actions": _next_actions(req["query"], mode, collections, limit,

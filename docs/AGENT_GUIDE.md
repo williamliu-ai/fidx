@@ -160,6 +160,17 @@ causes remain even if `summary.budget.over_minimum` is true. When budgeting is
 active, all fields outside the required floor are optional. Handle absent
 optional fields and ignore unknown additive `fidx.search.v2` fields.
 
+After a successful `fidx index`, `summary.index.age_seconds` reports elapsed
+time since that command completed. `summary.index.stale_hint` checks only the
+first 20 indexed files sorted by collection and relative path: `true` means a
+sampled file is missing or newer on disk; `false` means that sample was clean,
+not that the whole corpus is current. A changed file outside the sample can
+leave the hint false. If a sampled file cannot be checked, the hint is absent
+while age remains. Older indexes without a completion timestamp omit
+`summary.index` entirely. Under `--budget-tokens`, this optional object may
+be dropped; `summary.budget.dropped.index` reports that removal when the
+object existed before trimming. Run `fidx index` to verify the full corpus.
+
 If `results` is empty:
 
 - `empty_index` means add a collection and run `fidx index`
