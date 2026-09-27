@@ -84,14 +84,15 @@ def _ensure_vocab(conn: sqlite3.Connection) -> None:
             conn.execute("PRAGMA query_only=OFF")
         conn.execute(
             "CREATE VIRTUAL TABLE temp.fidx_guidance_vocab "
-            "USING fts5vocab(main, 'documents_fts', 'row')")
+            "USING fts5vocab(main, 'documents_fts', 'instance')")
     finally:
         if query_only:
             conn.execute("PRAGMA query_only=ON")
 
 
-def term_coverage(conn: sqlite3.Connection, query: str) -> TermCoverage:
-    """Report query surface terms using Porter-stemmed FTS document frequency."""
+def term_coverage(conn: sqlite3.Connection, query: str,
+                  collections: Sequence[str] | None = None) -> TermCoverage:
+    """Report Porter-stemmed DF over active documents in the searched scope."""
     surfaces = list(dict.fromkeys(_TOKEN_RE.findall(query)))
     if not surfaces:
         return TermCoverage((), (), (), {}, 0.0)
@@ -99,13 +100,21 @@ def term_coverage(conn: sqlite3.Connection, query: str) -> TermCoverage:
     all_stems = sorted({stem for values in stems.values() for stem in values})
     _ensure_vocab(conn)
     dfs: dict[str, int] = {}
+    scope = list(collections or ())
+    collection_sql = ""
+    if scope:
+        collection_sql = f" AND d.collection IN ({','.join('?' for _ in scope)})"
     if all_stems:
         marks = ",".join("?" for _ in all_stems)
-        dfs = {row["term"]: row["doc"] for row in conn.execute(
-            f"SELECT term, doc FROM temp.fidx_guidance_vocab WHERE term IN ({marks})",
-            all_stems)}
+        dfs = {row["term"]: row["df"] for row in conn.execute(
+            f"SELECT v.term, count(DISTINCT v.doc) AS df "
+            f"FROM temp.fidx_guidance_vocab AS v "
+            f"JOIN documents AS d ON d.id = v.doc "
+            f"WHERE v.term IN ({marks}) AND d.active = 1{collection_sql} "
+            f"GROUP BY v.term", [*all_stems, *scope])}
     doc_count = conn.execute(
-        "SELECT count(*) FROM documents WHERE active = 1").fetchone()[0]
+        f"SELECT count(*) FROM documents AS d WHERE d.active = 1{collection_sql}",
+        scope).fetchone()[0]
     rare_cutoff = max(3, 0.00001 * doc_count)
     term_df = {
         surface: min((dfs.get(stem, 0) for stem in stems[surface]), default=0)
