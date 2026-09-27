@@ -96,6 +96,17 @@ index leaves locations absent until that collection is indexed again, when
 its missing line ranges are filled from existing chunk offsets without
 re-embedding.
 
+`fidx index` holds an OS lock on the persistent `<db>.lock` file
+from before opening the index through synchronization, embedding and
+calibration. It uses POSIX `flock` or a one-byte Windows `msvcrt` lock. A
+second index process tries once, retries after 250 ms, then
+exits with `db_locked` (code 4) and a best-effort holder PID. The lockfile
+remains after the command; the kernel releases its lock when the process
+exits, including after a crash. SQLite connections also pin a 5-second busy
+timeout for residual database contention. WAL allows readers to query a
+valid snapshot while indexing runs. Windows may deny reads of the locked
+diagnostic byte, in which case the error names a generic holder.
+
 ### Query pipeline
 
 ```
