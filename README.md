@@ -156,6 +156,30 @@ offline. `fidx doctor --json` reports the default embedding profile's local
 availability in its `embedding_model` row. `fidx models fetch rerank` is reserved
 for the optional reranker and is unavailable in this release.
 
+### CLI errors and exit codes
+
+Add `--json` before a command to receive execution errors on stdout as a
+`fidx.error.v1` object. `search --json` also does this and returns its usual
+search envelope on success. The error object has `schema`, `status`, `message`,
+and `next_actions` (each action has `intent`, `reason`, and a runnable `command`
+array). `candidates` appears only for an ambiguous document reference. Human
+errors remain one line on stderr. Set `FIDX_DEBUG=1` to see the traceback while
+diagnosing a failure.
+
+| Exit | Status | Meaning |
+|---:|---|---|
+| 0 | — | Success, including `no_results` and `empty_index` on a valid index. |
+| 1 | `error` | Expected command failure or unexpected execution error; doctor hard failure also exits 1. |
+| 2 | — | Click usage error, such as a missing argument or invalid option value; stderr usage text, no JSON envelope. |
+| 3 | `index_missing`, `index_invalid` | Missing or invalid index on a read path. |
+| 4 | `db_locked` | Database contention after its busy timeout. |
+| 5 | `model_missing` | Embedding model unavailable locally; fetch it using the returned action. |
+| 6 | `ambiguous_reference` | A document prefix matched more than one path. |
+
+The index statuses and ambiguous-reference status are reserved for the
+corresponding fail-closed read paths. `doctor --json` always emits its own
+diagnostic report, even when it exits 1.
+
 ### Choosing result truncation
 
 By default, `fidx search` returns the top `-n` ranked results with no tail

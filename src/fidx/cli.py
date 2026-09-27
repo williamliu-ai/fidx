@@ -10,14 +10,18 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sys
+import tempfile
 import time
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import click
 
-from . import __version__, config, daemon, db, indexer, vector_store
-from .embedder import FastEmbedder, ModelUnavailableError
+from . import __version__, config, daemon, db, errors, indexer, vector_store
+from .embedder import FastEmbedder
 
 
 def open_index(db_path: Path, profile_name: str | None = None):
@@ -38,12 +42,78 @@ def open_index(db_path: Path, profile_name: str | None = None):
     return conn, profile
 
 
-@click.group()
+def _json_requested(args: list[str]) -> bool:
+    """A literal --json after -- is a positional value, not an output option."""
+    return "--json" in args[:args.index("--") if "--" in args else len(args)]
+
+
+def _command_name(args: list[str]) -> str | None:
+    """Find the root command for doctor report precedence."""
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--db":
+            i += 2
+        elif arg.startswith("--"):
+            i += 1
+        else:
+            return arg
+    return None
+
+
+class ErrorBoundaryGroup(click.Group):
+    """Render execution failures after Click has parsed arguments and options."""
+
+    def main(self, args=None, prog_name=None, standalone_mode=True, **extra):
+        argv = list(sys.argv[1:] if args is None else args)
+        json_mode = _json_requested(argv)
+        doctor_command = _command_name(argv) == "doctor"
+        try:
+            if json_mode and not doctor_command:
+                # A command may print progress before failing. Keep stdout a
+                # single parseable document in JSON error mode.
+                with tempfile.SpooledTemporaryFile(
+                    mode="w+t", encoding="utf-8", max_size=1024 * 1024
+                ) as output:
+                    with redirect_stdout(output):
+                        result = super().main(args=argv, prog_name=prog_name,
+                                              standalone_mode=False, **extra)
+                    output.seek(0)
+                    shutil.copyfileobj(output, sys.stdout)
+                return result
+            return super().main(args=argv, prog_name=prog_name,
+                                standalone_mode=False, **extra)
+        except click.UsageError as exc:
+            exc.show()
+            raise SystemExit(errors.ExitCode.USAGE) from None
+        except Exception as exc:
+            if os.environ.get("FIDX_DEBUG") == "1":
+                raise
+            payload, code = errors.envelope(exc)
+            if json_mode:
+                if doctor_command:
+                    # Doctor's diagnostic report is its result even on failure.
+                    click.echo(json.dumps([{
+                        "name": "doctor", "ok": False,
+                        "detail": payload["message"],
+                        "remediation": "Run with FIDX_DEBUG=1 for a traceback.",
+                        "hard": True,
+                    }]))
+                else:
+                    click.echo(json.dumps(payload, ensure_ascii=False))
+            else:
+                click.echo(f"Error: {payload['message']}", err=True)
+            raise SystemExit(code) from None
+
+
+@click.group(cls=ErrorBoundaryGroup)
 @click.version_option(__version__)
 @click.option("--db", "db_path", type=click.Path(path_type=Path), default=None,
               help="Index database path (default: $FIDX_DB or ~/.cache/fidx/index.db).")
+@click.option("--json", "error_json", is_flag=True,
+              help="Emit command errors as JSON; use command-level --json for result output.")
 @click.pass_context
-def main(ctx: click.Context, db_path: Path | None) -> None:
+def main(ctx: click.Context, db_path: Path | None, error_json: bool) -> None:
     """fidx — fast local semantic search for markdown, text, chat and code.
 
     \b
@@ -61,6 +131,7 @@ def main(ctx: click.Context, db_path: Path | None) -> None:
     """
     ctx.ensure_object(dict)
     ctx.obj["db_path"] = (db_path or config.default_db_path()).expanduser()
+    ctx.obj["error_json"] = error_json
 
 
 @main.command()
@@ -73,6 +144,7 @@ def doctor(as_json: bool) -> None:
     Exits non-zero if a hard capability fails.
     """
     from . import diagnostics
+    as_json = as_json or click.get_current_context().find_root().obj["error_json"]
     checks = diagnostics.capabilities()
     if as_json:
         click.echo(json.dumps([c.__dict__ for c in checks], indent=2))
@@ -86,7 +158,7 @@ def doctor(as_json: bool) -> None:
         if not as_json:
             click.echo(f"\n{len(hard)} hard check(s) failed — fidx cannot run on this host.",
                        err=True)
-        raise SystemExit(1)
+        raise SystemExit(errors.ExitCode.ERROR)
     if not as_json:
         click.echo("\nAll hard checks passed — fidx is ready.")
 
@@ -293,10 +365,10 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                     if has_documents and mode in ("vector", "hybrid") else None)
         try:
             payload = daemon.run_search(conn, store, embedder, req)
-        except (ValueError, ModelUnavailableError) as exc:
+        except ValueError as exc:
             raise click.ClickException(str(exc))
 
-    if as_json:
+    if as_json or ctx.obj["error_json"]:
         click.echo(json.dumps(payload, ensure_ascii=False))
     elif files_only:
         for r in payload["results"]:
@@ -363,11 +435,8 @@ def serve(ctx: click.Context, threads: int | None) -> None:
     """Run the warm-search daemon (foreground). Searches then take ~ms."""
     conn, prof = open_index(ctx.obj["db_path"])
     store = vector_store.open_store(conn, ctx.obj["db_path"])
-    try:
-        daemon.serve(ctx.obj["db_path"], conn, store,
-                     FastEmbedder(prof, threads=threads, local_files_only=True))
-    except ModelUnavailableError as exc:
-        raise click.ClickException(str(exc)) from exc
+    daemon.serve(ctx.obj["db_path"], conn, store,
+                 FastEmbedder(prof, threads=threads, local_files_only=True))
 
 
 @main.command()
@@ -396,12 +465,9 @@ def calibrate(ctx: click.Context, sample: int, target: float, reject: float,
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path)
     vstore = vector_store.open_store(conn, db_path)
-    try:
-        res = calibratemod.calibrate(
-            conn, vstore, FastEmbedder(prof, local_files_only=True), sample=sample,
-            target=target, reject=reject, dropout=dropout, seed=seed)
-    except ModelUnavailableError as exc:
-        raise click.ClickException(str(exc)) from exc
+    res = calibratemod.calibrate(
+        conn, vstore, FastEmbedder(prof, local_files_only=True), sample=sample,
+        target=target, reject=reject, dropout=dropout, seed=seed)
     if not res.get("n_pos"):
         raise click.ClickException(res.get("note", "calibration produced no samples"))
     click.echo(f"positives n={res['n_pos']} (p5={res['pos_p5']} median={res['pos_median']})  "

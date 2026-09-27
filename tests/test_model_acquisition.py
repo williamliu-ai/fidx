@@ -89,12 +89,18 @@ def test_cold_query_commands_fail_closed_with_fetch_hint(
 ):
     cache, attempts = cold_cache
     result = CliRunner().invoke(cli.main, ["--db", str(populated_db), *args])
-    assert result.exit_code == 1, result.output
-    assert result.output.strip().splitlines()[-1] == (
-        "Error: embedding model 'BAAI/bge-small-en-v1.5' for profile "
+    assert result.exit_code == 5, result.output
+    message = (
+        "embedding model 'BAAI/bge-small-en-v1.5' for profile "
         "'bge-384' is unavailable locally; run "
         "`fidx models fetch embed --profile bge-384`"
     )
+    if "--json" in args:
+        payload = json.loads(result.stdout)
+        assert payload["status"] == "model_missing"
+        assert payload["message"] == message
+    else:
+        assert result.stderr.strip().splitlines()[-1] == f"Error: {message}"
     assert not attempts
     assert not any(cache.rglob("*.onnx"))
 
@@ -206,7 +212,7 @@ def test_partial_cache_fails_closed_with_fetch_hint(
 ):
     _partial_cache_fastembed(monkeypatch, tmp_path)
     result = CliRunner().invoke(cli.main, ["--db", str(populated_db), *args])
-    assert result.exit_code == 1
+    assert result.exit_code == 5
     assert not isinstance(result.exception, _OrtNoSuchFile)
     assert "`fidx models fetch embed --profile bge-384`" in result.output
 
@@ -230,7 +236,7 @@ def test_real_fastembed_partial_cache_fails_closed(cold_cache, populated_db, mon
     result = CliRunner().invoke(
         cli.main, ["--db", str(populated_db), "search", "topic", "--no-daemon"]
     )
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 5, result.output
     assert "`fidx models fetch embed --profile bge-384`" in result.output
     assert not attempts
 

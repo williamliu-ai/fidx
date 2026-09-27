@@ -99,6 +99,27 @@ when you want to refresh the stored floor used by `--truncate calibrated`;
 
 ## Reading `fidx search --json`
 
+Execution failures use a separate `fidx.error.v1` object on stdout when JSON
+was requested. Use `fidx --json get ...` or `fidx --json index ...` to request
+JSON errors from commands without a result-level `--json` option. Each error
+has `status`, `message`, and `next_actions`; action items use the same
+`{intent, reason, command}` shape as search. Only ambiguous references add
+`candidates`. `doctor --json` always returns its own report, including on a
+hard capability failure.
+
+| Exit | Error status | Agent response |
+|---:|---|---|
+| 0 | — | Read the command result; empty search and abstention are success. |
+| 1 | `error` | Inspect `message`; fix the expected failure or report an unexpected one. |
+| 2 | — | Fix the invocation; Click prints usage to stderr and no error envelope. |
+| 3 | `index_missing` / `index_invalid` | Check the index path or rebuild the index. |
+| 4 | `db_locked` | Retry after contention clears. |
+| 5 | `model_missing` | Run the `fetch_model` action while online. |
+| 6 | `ambiguous_reference` | Choose a path from `candidates`. |
+
+Human errors are single stderr lines. `FIDX_DEBUG=1` restores Python
+tracebacks for diagnosis.
+
 `fidx search --json` returns a `fidx.search.v2` envelope. Agents should read
 these fields before retrying:
 

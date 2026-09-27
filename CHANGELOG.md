@@ -7,6 +7,10 @@ All notable changes to fidx are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `fidx.error.v1` JSON execution errors and stable exit codes for generic,
+  usage, index, database-lock, missing-model, and ambiguous-reference failures.
+  Use root `--json` for commands without their own JSON result option;
+  `FIDX_DEBUG=1` restores tracebacks.
 - `fidx models fetch embed [--profile NAME]` acquires an embedding model
   explicitly and prints its cache path. `fidx doctor` now reports whether the
   default embedding profile is available locally.
