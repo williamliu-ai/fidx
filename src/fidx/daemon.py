@@ -217,6 +217,11 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
     calibration = diagnostics["calibration"]
     profile = _score_profile(pre_truncate)
     floor_available = calibration["floor_available"]
+    floor_applicable = floor_available and calibration.get("floor_applicable", True)
+    unavailable_floor_reason = (
+        "The stored fused-score calibration floor is inapplicable after reranking"
+        if floor_available else "No calibration floor is stored"
+    )
 
     recommendation = None
     primary_action = None
@@ -225,13 +230,13 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
 
     if final:
         if effective_truncate != "off":
-            if effective_truncate == "calibrated" and not floor_available:
+            if effective_truncate == "calibrated" and not floor_applicable:
                 if profile["has_knee"]:
                     recommendation = "knee"
                     primary_action = "clean_shortlist"
                     lean = "balanced"
                     reason = (
-                        "No calibration floor is stored, so calibrated behaves like knee; "
+                        f"{unavailable_floor_reason}, so calibrated behaves like knee; "
                         "use knee as the explicit balanced truncation mode."
                     )
                 else:
@@ -239,7 +244,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
                     primary_action = "disable_truncation"
                     lean = "recall"
                     reason = (
-                        "No calibration floor is stored and the score profile has no "
+                        f"{unavailable_floor_reason} and the score profile has no "
                         "applicable knee; use off to preserve recall."
                     )
             elif effective_truncate == "knee" and not profile["has_knee"]:
@@ -282,7 +287,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
     elif filters["after_min_score"] == 0 and filters["raw_count"] > 0:
         reason = "The minimum-score filter removed all candidates; adjust that before truncation."
     elif filters["dropped_by_truncate"] > 0:
-        if effective_truncate == "calibrated" and floor_available and profile["has_knee"]:
+        if effective_truncate == "calibrated" and floor_applicable and profile["has_knee"]:
             recommendation = "knee"
             primary_action = "clean_shortlist"
             lean = "balanced"
@@ -299,7 +304,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
     off_recommended = recommendation == "off"
     knee_applicable = profile["count"] >= 4 and profile["has_knee"]
     knee_recommended = recommendation == "knee"
-    calibrated_recommended = recommendation == "calibrated" and floor_available
+    calibrated_recommended = recommendation == "calibrated" and floor_applicable
     if profile["count"] < 4:
         knee_reason = "Knee needs at least 4 result scores; it would be a no-op here."
     elif profile["flat"]:
@@ -308,10 +313,15 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
         knee_reason = "Balanced option: cut the score-curve tail without corpus calibration."
     else:
         knee_reason = "No useful knee was detected in the score profile."
-    if floor_available:
+    if floor_applicable:
         calibrated_reason = (
             "Purity option: apply the stored corpus floor, then knee; this can abstain "
             "or drop borderline results."
+        )
+    elif floor_available:
+        calibrated_reason = (
+            "The stored fused-score calibration floor is inapplicable after reranking; "
+            "calibrated would behave like knee, so it is not offered as a distinct action."
         )
     else:
         calibrated_reason = (
@@ -348,7 +358,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
                 "use_calibrated_abstention",
                 "calibrated",
                 "purity",
-                floor_available,
+                floor_applicable,
                 calibrated_recommended,
                 calibrated_reason,
                 _search_command(query, mode, collections, limit, min_score, "calibrated"),
@@ -466,7 +476,8 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
 def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: int,
                     min_score, truncate, raw: list[searchmod.Result],
                     after_min: list[searchmod.Result],
-                    final: list[searchmod.Result]) -> dict:
+                    final: list[searchmod.Result], *,
+                    rerank_succeeded: bool = False) -> dict:
     unknown = _unknown_collections(conn, collections)
     filters = {
         "raw_count": len(raw),
@@ -484,6 +495,8 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "filters": filters,
         "calibration": _calibration(conn),
     }
+    if rerank_succeeded:
+        diagnostics["calibration"]["floor_applicable"] = False
     results = serialize_results(final, mode)
     status = "ok" if final else ("empty_index" if index_empty else "no_results")
     top_score = round(final[0].score, 5) if final else None
@@ -577,9 +590,11 @@ def run_search(conn, store, embedder, req: dict,
 
     raw = retrieve(max(limit, rerank_n) if reranker is not None else limit)
     rerank_succeeded = False
+    rerank_failed = False
     if reranker is not None and raw:
         outcome = rerankmod.rerank_results(conn, query, raw, mode, reranker)
         if outcome.failed:
+            rerank_failed = True
             # The wider lexical/vector retrieval window can change candidates
             # and scores; retry at the original limit for truthful parity.
             raw = retrieve(limit)
@@ -603,7 +618,8 @@ def run_search(conn, store, embedder, req: dict,
         from . import truncate as truncatemod
         results = truncatemod.truncate(results, truncate, mode)
     envelope = _agent_envelope(conn, req, mode, collections, limit, min_score, truncate,
-                               raw, after_min, results)
+                               raw, after_min, results,
+                               rerank_succeeded=rerank_succeeded)
     if "guidance" in req or guidance_on:
         envelope["request"]["guidance"] = guidance_on
     if guidance_on or explain:
@@ -618,6 +634,13 @@ def run_search(conn, store, embedder, req: dict,
         else:
             signals = guidance.compute_qpp(trace, term_coverage_ratio=coverage.ratio)
             envelope["diagnostics"]["qpp"] = guidance_diagnostics.qpp_projection(signals)
+    if rerank_failed:
+        envelope["diagnostics"]["warnings"] = [
+            {"component": "rerank", "code": "runtime_failure", "fallback": "fused"}]
+    elif (rerank_succeeded and truncate == "calibrated" and
+          envelope["diagnostics"]["calibration"]["floor_available"]):
+        envelope["diagnostics"]["warnings"] = [
+            {"component": "rerank", "code": "fused_calibration_ignored", "fallback": "knee"}]
     requested = req.get("budget_tokens")
     return budget.apply_budget(envelope, requested) if requested is not None else envelope
 

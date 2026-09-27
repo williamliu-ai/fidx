@@ -10,10 +10,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
+from click.testing import CliRunner
 
-from fidx import daemon, search, truncate
+from fidx import budget, daemon, guidance, guidance_diagnostics, search, truncate
+from fidx.cli import main
 from fidx.search import Result, SearchTrace
 
 
@@ -171,3 +174,122 @@ def test_empty_index_skips_injected_scorer_and_embedding(conn):
         conn, None, None, _request("hybrid"), reranker=scorer, rerank_n=4)
     assert payload["status"] == "empty_index"
     assert scorer.calls == []
+
+
+def test_runtime_failure_warning_is_closed_and_budget_classified(conn, monkeypatch):
+    ranked = _results(conn, 2)
+    monkeypatch.setattr(search, "search_lexical",
+                        lambda _c, _q, _scope, limit: ranked[:limit])
+    req = _request()
+    baseline = daemon.run_search(conn, None, None, req)
+    failed = daemon.run_search(conn, None, None, req, reranker=Broken(), rerank_n=2)
+    assert failed["results"] == baseline["results"]
+    assert failed["diagnostics"]["warnings"] == [
+        {"component": "rerank", "code": "runtime_failure", "fallback": "fused"}]
+    assert "synthetic scorer failure" not in json.dumps(failed)
+    assert budget.unclassified_fields(failed) == []
+
+    full = daemon.run_search(conn, None, None, {**req, "budget_tokens": 10000},
+                             reranker=Broken(), rerank_n=2)
+    assert full["diagnostics"]["warnings"] == failed["diagnostics"]["warnings"]
+    tiny = daemon.run_search(conn, None, None, {**req, "budget_tokens": 0},
+                             reranker=Broken(), rerank_n=2)
+    assert "diagnostics" not in tiny
+    assert tiny["summary"]["budget"]["dropped"]["diagnostics"] is True
+
+
+def test_successful_calibrated_rerank_reports_inapplicable_fused_floor(
+        conn, monkeypatch):
+    ranked = _results(conn, 2)
+    conn.execute("INSERT INTO meta(key,value) VALUES ('truncate_floor','0.99')")
+    monkeypatch.setattr(search, "search_lexical",
+                        lambda _c, _q, _scope, limit: ranked[:limit])
+    payload = daemon.run_search(
+        conn, None, None, _request(truncate="calibrated"),
+        reranker=Scores([0.0, 1.0]), rerank_n=2)
+    assert payload["diagnostics"]["calibration"] == {
+        "floor_available": True, "floor": 0.99, "floor_applicable": False}
+    assert payload["diagnostics"]["warnings"] == [
+        {"component": "rerank", "code": "fused_calibration_ignored", "fallback": "knee"}]
+    advice = payload["summary"]["truncation_advice"]
+    calibrated = next(option for option in advice["options"]
+                      if option["intent"] == "use_calibrated_abstention")
+    assert calibrated["applicable"] is False
+    assert calibrated["recommended"] is False
+    assert "inapplicable" in calibrated["reason"].lower()
+    assert advice["recommendation"] != "calibrated"
+    assert "no calibration floor is stored" not in advice["reason"].lower()
+    baseline = daemon.run_search(conn, None, None, _request(truncate="calibrated"))
+    assert baseline["diagnostics"]["calibration"] == {
+        "floor_available": True, "floor": 0.99}
+    assert "warnings" not in baseline["diagnostics"]
+
+
+@pytest.mark.parametrize("stored_floor", [None, "abc"])
+def test_calibrated_rerank_without_valid_floor_has_no_ignored_floor_warning(
+        conn, monkeypatch, stored_floor):
+    ranked = _results(conn, 2)
+    if stored_floor is not None:
+        conn.execute("INSERT INTO meta(key,value) VALUES ('truncate_floor',?)",
+                     (stored_floor,))
+    monkeypatch.setattr(search, "search_lexical",
+                        lambda _c, _q, _scope, limit: ranked[:limit])
+    payload = daemon.run_search(
+        conn, None, None, _request(truncate="calibrated"),
+        reranker=Scores([0.0, 1.0]), rerank_n=2)
+    assert payload["diagnostics"]["calibration"]["floor_available"] is False
+    assert "warnings" not in payload["diagnostics"]
+    assert "no calibration floor is stored" in (
+        payload["summary"]["truncation_advice"]["reason"].lower())
+
+
+def test_guidance_trace_stays_raw_and_default_request_key_is_inert(conn, monkeypatch):
+    ranked = _results(conn, 4)
+    monkeypatch.setattr(search, "search_lexical",
+                        lambda _c, _q, _scope, limit: ranked[:limit])
+    req = _request(guidance=True, explain=True)
+    default = daemon.run_search(conn, None, None, req)
+    assert json.dumps(daemon.run_search(conn, None, None, req, reranker=None),
+                      sort_keys=True) == json.dumps(default, sort_keys=True)
+    assert json.dumps(daemon.run_search(conn, None, None, {**req, "rerank": True}),
+                      sort_keys=True) == json.dumps(default, sort_keys=True)
+    trace = SearchTrace()
+    before = [(r.score, dict(r.sources), r.matched_chunk_id,
+               r.line_start, r.line_end) for r in ranked]
+    payload = daemon.run_search(conn, None, None, req, trace=trace,
+                                reranker=Scores([0, 2, 1, -1]), rerank_n=4)
+    assert [(r.score, r.sources, r.matched_chunk_id, r.line_start, r.line_end)
+            for r in trace.fused_pool] == before
+    coverage = guidance.term_coverage(conn, req["query"], collections=[])
+    expected_qpp = guidance_diagnostics.qpp_projection(
+        guidance.compute_qpp(trace, term_coverage_ratio=coverage.ratio))
+    assert payload["diagnostics"]["qpp"] == expected_qpp
+    assert "warnings" not in payload["diagnostics"]
+
+
+def test_failure_with_guidance_keeps_original_limit_envelope_and_trace(
+        conn, monkeypatch):
+    ranked = _results(conn, 4)
+    calls = []
+
+    def lexical(_conn, _query, _scope, limit):
+        calls.append(limit)
+        return ranked[:limit]
+
+    monkeypatch.setattr(search, "search_lexical", lexical)
+    req = _request(guidance=True, explain=True)
+    baseline = daemon.run_search(conn, None, None, req)
+    trace = SearchTrace()
+    failed = daemon.run_search(conn, None, None, req, trace=trace,
+                               reranker=Broken(), rerank_n=4)
+    assert calls == [2, 4, 2]
+    assert failed["diagnostics"].pop("warnings") == [
+        {"component": "rerank", "code": "runtime_failure", "fallback": "fused"}]
+    assert failed == baseline
+    assert [r.doc_id for r in trace.fused_pool] == [r.doc_id for r in ranked[:2]]
+
+
+def test_search_help_does_not_activate_dark_reranker():
+    result = CliRunner().invoke(main, ["search", "--help"])
+    assert result.exit_code == 0
+    assert "--rerank" not in result.output
