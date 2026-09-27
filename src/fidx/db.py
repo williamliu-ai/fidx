@@ -87,6 +87,7 @@ def connect(db_path: Path, *, create: bool = True) -> sqlite3.Connection:
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
+    conn.execute("PRAGMA busy_timeout=5000")
     if create:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
