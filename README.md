@@ -391,6 +391,25 @@ use `--mode lexical` for exact names/paths/errors, use `--mode vector` for
 synonym-heavy wording, or run `fidx collection add` + `fidx index` if
 `diagnostics.index_empty` is true.
 
+Search guidance is opt-in: add `--guidance --json` to receive structural
+`summary.confidence_reasons`, scoped `diagnostics.term_coverage`,
+`summary.count_relation`, and, for an empty result, ranked
+`diagnostics.no_results.causes`. `--no-guidance` explicitly disables it.
+`--explain` independently adds raw query-quality signals in
+`diagnostics.qpp`, including when guidance is off. Neither option changes
+retrieval ranking or loads a model for lexical search. These signals are
+heuristics from the bounded candidate pool **before** score filters and
+truncation; they are not calibrated relevance or absence probabilities.
+`summary.result_count` is the exact number of returned results before any
+output-budget trimming. `summary.count_relation: "gte"` describes the bounded
+candidate pool relative to all potentially matching documents, not an
+approximation of `result_count`. Term coverage uses active documents in the
+requested collections and Porter-tokenized query terms. If a running daemon
+does not acknowledge these options, the CLI recomputes the search locally;
+restart `fidx serve` to update the warm path. With guidance enabled,
+`diagnostics.execution` reports the path and any fallback cause. Guidance
+remains off when neither flag is supplied.
+
 For a smaller JSON response, add `--budget-tokens N`. The estimate is
 `ceil(compact UTF-8 JSON bytes / 4)`, not a model tokenizer count. The budget
 processor drops optional guidance, snippets, titles, advice, diagnostics, and
@@ -403,6 +422,8 @@ For `no_results` and `empty_index`, follow-up `next_actions` and any ranked
 absence causes remain available even at tiny budgets. `summary.result_count`
 continues to describe the search before output trimming; use
 `summary.budget.dropped.results` to see how many trailing results were omitted.
+Raw `--explain` signals are an optional diagnostics field dropped at the
+diagnostics step; empty-result causes remain even when diagnostics are trimmed.
 When `summary.budget` is present, fields outside this floor may be absent;
 consumers of `fidx.search.v2` should tolerate absent optional fields and
 ignore unknown additive fields.

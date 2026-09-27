@@ -48,7 +48,7 @@ _DIAGNOSTIC_FIELDS = {
     "index_empty": _LADDER, "unknown_collections": _LADDER,
     "filters": _LADDER, "calibration": _LADDER,
     "execution": _LADDER, "term_coverage": _LADDER,
-    "no_results": _LADDER,
+    "no_results": _LADDER, "qpp": _LADDER,
 }
 _NO_RESULTS_FIELDS = {"causes": _STATUS}
 _GUIDANCE_FIELDS = ("facets", "query_suggestions", "term_coverage",
