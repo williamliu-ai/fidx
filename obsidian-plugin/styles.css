@@ -34,20 +34,35 @@
   margin-top: 12px;
 }
 
-.fidx-search-result {
+.fidx-search-results button.fidx-search-result {
+  display: block;
   width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  box-sizing: border-box;
   padding: 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   background: var(--background-primary);
   color: var(--text-normal);
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: left;
+  cursor: pointer;
 }
 
-.fidx-search-result:hover,
-.fidx-search-result:focus {
+.fidx-search-results button.fidx-search-result:hover,
+.fidx-search-results button.fidx-search-result:focus {
   border-color: var(--interactive-accent);
   background: var(--background-secondary);
+}
+
+.fidx-search-results button.fidx-search-result > div {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .fidx-search-result-title {
