@@ -43,12 +43,33 @@ class FidxError(Exception):
         self.next_actions = next_actions or []
 
 
+def _create_index_actions() -> list[dict]:
+    return [
+        {
+            "intent": "add_collection",
+            "reason": "Register a source directory for a new index.",
+            "command": ["fidx", "collection", "add", "<path>", "--name", "<collection>"],
+        },
+        {
+            "intent": "index",
+            "reason": "Build the index after registering a collection.",
+            "command": ["fidx", "index"],
+        },
+    ]
+
+
 class IndexMissing(FidxError):
     status = "index_missing"
+
+    def __init__(self, message: str):
+        super().__init__(message, next_actions=_create_index_actions())
 
 
 class IndexInvalid(FidxError):
     status = "index_invalid"
+
+    def __init__(self, message: str):
+        super().__init__(message, next_actions=_create_index_actions())
 
 
 class DatabaseLocked(FidxError):

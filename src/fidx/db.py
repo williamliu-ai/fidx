@@ -18,6 +18,7 @@ Schema invariants:
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from pathlib import Path
 
 # NOTE: `sqlite_vec` is imported lazily inside connect(), not at module load, so
@@ -52,13 +53,29 @@ def sqlite_module():
         return sqlite3
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    import sqlite_vec  # lazy: see module note
-
+def connect(db_path: Path, *, create: bool = True) -> sqlite3.Connection:
     sqlite = sqlite_module()
     db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite.connect(str(db_path))
+    if create:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite.connect(str(db_path))
+    else:
+        from .errors import IndexInvalid, IndexMissing
+
+        if not db_path.exists():
+            raise IndexMissing(f"index {db_path} does not exist")
+        if not db_path.is_file():
+            raise IndexInvalid(f"index {db_path} is not a regular database file")
+        with db_path.open("rb") as source:
+            if source.read(16) != b"SQLite format 3\0":
+                raise IndexInvalid(f"index {db_path} is not a SQLite database")
+        # mode=rw permits the intentional writes in `collection remove` and
+        # `calibrate --store`, but never creates a missing database path.
+        uri = db_path.absolute().as_uri() + "?mode=rw"
+        try:
+            conn = sqlite.connect(uri, uri=True)
+        except sqlite.DatabaseError as exc:
+            raise IndexInvalid(f"index {db_path} cannot be opened: {exc}") from exc
     conn.row_factory = sqlite.Row
     if not hasattr(conn, "enable_load_extension"):
         raise RuntimeError(
@@ -66,15 +83,44 @@ def connect(db_path: Path) -> sqlite3.Connection:
             "(common on macOS system Python). Install fidx with `uv tool install` "
             "or use Homebrew Python. Run `fidx doctor` for a full diagnosis."
         )
+    import sqlite_vec  # lazy: see module note
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    if create:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
+def validate_index(conn: sqlite3.Connection) -> None:
+    """Reject foreign or incomplete indexes without changing their schema."""
+    from .errors import IndexInvalid
+
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        if row is None:
+            raise IndexInvalid("index has no schema_version metadata")
+        try:
+            version = int(row["value"])
+        except (TypeError, ValueError) as exc:
+            raise IndexInvalid("index has invalid schema_version metadata") from exc
+        if version not in {1, SCHEMA_VERSION}:
+            raise IndexInvalid(f"index schema_version {version} is unsupported")
+        tables = {r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        required = {"meta", "collections", "documents", "documents_fts", "chunks"}
+        missing = sorted(required - tables)
+        if missing:
+            raise IndexInvalid(f"index is missing required tables: {', '.join(missing)}")
+    except sqlite3.DatabaseError as exc:
+        raise IndexInvalid(f"index schema is invalid: {exc}") from exc
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
+    fresh = not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").fetchone()
     cur = conn.cursor()
     cur.executescript(
         """
@@ -144,6 +190,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
                 (str(SCHEMA_VERSION),))
     cur.execute("UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?",
                 (str(SCHEMA_VERSION), SCHEMA_VERSION))
+    if fresh:
+        cur.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('instance_id', ?)",
+                    (uuid.uuid4().hex,))
     conn.commit()
 
 
@@ -187,3 +236,12 @@ def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, value))
     conn.commit()
+
+
+def ensure_instance_id(conn: sqlite3.Connection) -> str:
+    """Backfill identity once when indexing a legacy database."""
+    instance_id = get_meta(conn, "instance_id")
+    if instance_id is None:
+        instance_id = uuid.uuid4().hex
+        set_meta(conn, "instance_id", instance_id)
+    return instance_id

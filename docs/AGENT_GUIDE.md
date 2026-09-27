@@ -120,6 +120,16 @@ hard capability failure.
 Human errors are single stderr lines. `FIDX_DEBUG=1` restores Python
 tracebacks for diagnosis.
 
+Only `collection add` and `index` initialize a missing index. All search,
+read, inspection, daemon, calibration, and collection list/remove commands
+require an existing fidx database; a missing or invalid one exits 3 with
+`add_collection` and `index` actions. A valid but replaced database is read
+directly instead of accepting results from its predecessor's daemon; restart
+the daemon when `diagnostics.execution` reports `stale_instance`. A legacy
+database without an instance ID remains usable and gains one on its next
+`index` run. If `get "#prefix"` is ambiguous, choose a collection path from
+the error's bounded `candidates` list.
+
 `fidx search --json` returns a `fidx.search.v2` envelope. Agents should read
 these fields before retrying:
 
