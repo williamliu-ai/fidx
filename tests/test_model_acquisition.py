@@ -186,7 +186,7 @@ def test_rerank_fetch_is_dark_and_does_not_load_model(monkeypatch):
 def test_doctor_json_reports_embedding_model_fetch_hint(cold_cache):
     result = CliRunner().invoke(cli.main, ["doctor", "--json"])
     assert result.exit_code == 0, result.output
-    rows = {row["name"]: row for row in json.loads(result.output)}
+    rows = {row["name"]: row for row in json.loads(result.output)["checks"]}
     assert "embedding_model" in rows
     assert rows["embedding_model"]["ok"] is False
     assert "fidx models fetch embed" in rows["embedding_model"]["remediation"]
@@ -197,7 +197,7 @@ def test_doctor_reports_invalid_profile_without_crashing(monkeypatch):
     monkeypatch.setattr("fidx.config.DEFAULT_PROFILE", "unknown-profile")
     result = CliRunner().invoke(cli.main, ["doctor", "--json"])
     assert result.exit_code == 0, result.output
-    rows = {row["name"]: row for row in json.loads(result.output)}
+    rows = {row["name"]: row for row in json.loads(result.output)["checks"]}
     assert rows["embedding_model"]["ok"] is False
     assert "unknown-profile" in rows["embedding_model"]["detail"]
 
@@ -222,7 +222,7 @@ def test_doctor_flags_partial_cache_unavailable(tmp_path, monkeypatch):
     monkeypatch.setattr("fidx.config.DEFAULT_PROFILE", "bge-384")
     result = CliRunner().invoke(cli.main, ["doctor", "--json"])
     assert result.exit_code == 0, result.output
-    rows = {r["name"]: r for r in json.loads(result.output)}
+    rows = {r["name"]: r for r in json.loads(result.output)["checks"]}
     assert rows["embedding_model"]["ok"] is False
     assert "fidx models fetch embed --profile bge-384" in rows["embedding_model"]["remediation"]
 
@@ -243,5 +243,5 @@ def test_real_fastembed_partial_cache_fails_closed(cold_cache, populated_db, mon
     monkeypatch.setattr("fidx.config.DEFAULT_PROFILE", "bge-384")
     report = CliRunner().invoke(cli.main, ["doctor", "--json"])
     assert report.exit_code == 0, report.output
-    rows = {r["name"]: r for r in json.loads(report.output)}
+    rows = {r["name"]: r for r in json.loads(report.output)["checks"]}
     assert rows["embedding_model"]["ok"] is False

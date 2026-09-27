@@ -75,11 +75,13 @@ candidate sources quickly.
 
 ```sh
 fidx doctor
+fidx doctor --json
 fidx models fetch embed  # acquire the default model before offline search
 fidx collection add ./memory --name memory --glob "**/*.md" --glob "**/*.txt" --glob "**/*.jsonl"
 fidx collection add ./docs --name docs --glob "**/*.md" --glob "**/*.txt"
 fidx collection add ./src --name code --glob "**/*.py" --glob "**/*.ts" --glob "**/*.go" --glob "**/*.rs"
 fidx index
+fidx index --json
 fidx serve &
 ```
 
@@ -94,6 +96,7 @@ fidx search "where is request timeout handled?" -c code --files -n 20
 fidx get --head "#a1b2c3"
 fidx get "#a1b2c3" --json
 fidx get "#a1b2c3" --json --max-bytes 0  # explicitly request the full body
+fidx status --json
 ```
 
 `get --json` returns `fidx.get.v1` with `docid`, `collection`, `relpath`,
@@ -101,6 +104,13 @@ fidx get "#a1b2c3" --json --max-bytes 0  # explicitly request the full body
 applied after `--head` and before JSON escaping. A truncated body ends with
 `… [truncated]`; `--max-bytes 0` removes the cap. Human `get` output remains
 uncapped.
+
+The lifecycle JSON schemas are `fidx.index.v1`, `fidx.status.v1`, and
+`fidx.doctor.v1`. Index JSON reports counts, elapsed seconds, calibration state,
+and warnings; progress and warnings appear on stderr, and a fatal index failure
+returns only `fidx.error.v1` on stdout. Status JSON reports collections and
+document, chunk, and embedding counts. Doctor JSON includes `ok` and full
+checks with remediation; only hard failures set `ok: false` and exit 1.
 
 Use `fidx status` to inspect index health. Use `fidx calibrate --store` only
 when you want to refresh the stored floor used by `--truncate calibrated`;
@@ -110,7 +120,7 @@ when you want to refresh the stored floor used by `--truncate calibrated`;
 
 Execution failures use a separate `fidx.error.v1` object on stdout when JSON
 was requested. Use `fidx get ... --json` for structured get results and errors,
-or `fidx --json index ...` to request JSON errors from index. Each error
+or `fidx index --json` for a structured index result or error. Each error
 has `status`, `message`, and `next_actions`; action items use the same
 `{intent, reason, command}` shape as search. Only ambiguous references add
 `candidates`. `doctor --json` always returns its own report, including on a
