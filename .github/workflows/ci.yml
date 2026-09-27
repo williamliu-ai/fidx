@@ -45,16 +45,7 @@ jobs:
       - name: detect-secrets over tracked files
         run: |
           git ls-files -z | xargs -0 uvx detect-secrets scan > /tmp/scan.json
-          python3 - <<'EOF'
-          import json, sys
-          results = json.load(open("/tmp/scan.json"))["results"]
-          if results:
-              for f, findings in results.items():
-                  for x in findings:
-                      print(f"POTENTIAL SECRET: {f}:{x['line_number']} ({x['type']})")
-              sys.exit(1)
-          print("no secrets detected")
-          EOF
+          python3 scripts/check_secrets.py /tmp/scan.json
 
   private-paths:
     # Blocking: maintainer-internal docs and references must never (re)enter
