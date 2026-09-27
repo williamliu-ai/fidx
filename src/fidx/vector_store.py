@@ -59,6 +59,7 @@ class NullStore:
 
 class SqliteVecStore:
     name = "sqlite-vec"
+    KNN_MAX_K = 4096  # vec0 rejects larger k values
 
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
@@ -101,6 +102,19 @@ class SqliteVecStore:
         rows = self.conn.execute(
             "SELECT chunk_id, distance FROM vectors WHERE embedding MATCH ? AND k = ?",
             (sqlite_vec.serialize_float32(qvec), k),
+        ).fetchall()
+        return [(r["chunk_id"], r["distance"]) for r in rows]
+
+    def scan(self, qvec: np.ndarray) -> list[tuple[int, float]]:
+        """Exact distance scan for tied cohorts beyond vec0's KNN k limit."""
+        import sqlite_vec
+
+        if not self._exists():
+            return []
+        rows = self.conn.execute(
+            "SELECT chunk_id, vec_distance_cosine(embedding, ?) AS distance "
+            "FROM vectors ORDER BY distance",
+            (sqlite_vec.serialize_float32(qvec),),
         ).fetchall()
         return [(r["chunk_id"], r["distance"]) for r in rows]
 

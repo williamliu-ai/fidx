@@ -46,6 +46,12 @@ replayed against every engine.
 fidx hybrid (warm daemon) vs QMD modes. `p50` is per-query latency; fidx does
 one embedding + FTS5 + vector KNN per query, **no LLM calls**.
 
+The default sqlite-vec backend resolves equal-distance candidate cutoffs by
+fetching the full tied cohort before applying the cap; an all-equal corpus can
+cost a full vector scan. The optional DuckDB HNSW backend orders the candidates
+it retrieves consistently, but its approximate index does not guarantee the
+same candidate membership across reindexes.
+
 | corpus | engine / mode | R@1 | R@3 | R@10 | p50 latency |
 |---|---|---|---|---|---|
 | docs-small | **fidx hybrid** | 0.740 | 0.927 | **1.000** | **20 ms** |

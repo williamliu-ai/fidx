@@ -76,6 +76,14 @@ Vectors go through a pluggable backend (`vector_store.py`):
   validated in the prior research above — approximate KNN, faster at very
   large scale, extra storage; the sidecar is rebuildable from SQLite.
 
+Result ties use collection name and relative path, with chunk sequence breaking
+equal-distance ties within a document. The exact sqlite-vec backend expands a
+tied KNN cutoff before applying the candidate cap, so reindex order cannot
+change which equal-distance chunks make that cap. An all-equal corpus may
+require scanning every vector. DuckDB HNSW orders the candidates it returns
+the same way, but approximate retrieval may return a different candidate set
+across reindexes.
+
 The embedding profile **and vector backend** are pinned in `meta` by the
 **first embed run**, not by whichever command created the file; a mismatch in
 either is a hard error, never a silent dimension/backend conflict.

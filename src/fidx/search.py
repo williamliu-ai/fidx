@@ -85,7 +85,7 @@ def _fts_query(conn: sqlite3.Connection, expr: str, collections: list[str] | Non
         FROM documents_fts
         JOIN documents d ON d.id = documents_fts.rowid
         WHERE documents_fts MATCH ? AND d.active = 1{clause}
-        ORDER BY rank LIMIT ?
+        ORDER BY rank, d.collection, d.relpath LIMIT ?
         """,
         [expr, *params, limit],
     ).fetchall()
@@ -135,37 +135,68 @@ def search_lexical(conn: sqlite3.Connection, query: str, collections: list[str] 
 def search_vector(conn: sqlite3.Connection, store, embedder: Embedder, query: str,
                   collections: list[str] | None = None,
                   limit: int = CANDIDATES_PER_SOURCE) -> list[Result]:
+    if limit <= 0:
+        return []
     qvec = embedder.embed_queries([query])[0]
-    # Over-fetch chunks (docs have multiple chunks), then dedup to best per doc.
-    knn = store.knn(qvec, limit * 4)
+    # Keep the existing four-chunks-per-document candidate cap. Exact sqlite-vec
+    # needs one lookahead row: a tied cutoff can otherwise select arbitrary
+    # chunk IDs before their document paths are available for ordering.
+    cap = limit * 4
+    if getattr(store, "name", None) == "sqlite-vec":
+        if cap + 1 > store.KNN_MAX_K:
+            knn = store.scan(qvec)
+        else:
+            window = cap
+            knn = store.knn(qvec, window + 1)
+            if len(knn) > cap:
+                boundary = knn[cap - 1][1]
+                # Follow only the cohort that straddles the original cap.
+                # A separate tie farther down need not be completed.
+                while len(knn) > window and knn[window][1] == boundary:
+                    window *= 2
+                    if window + 1 > store.KNN_MAX_K:
+                        knn = store.scan(qvec)
+                        break
+                    knn = store.knn(qvec, window + 1)
+    else:
+        # DuckDB's HNSW may hide tied neighbours behind farther candidates.
+        # Its returned set is sorted below; membership remains approximate.
+        knn = store.knn(qvec, cap)
     if not knn:
         return []  # not embedded yet (`fidx index`); hybrid degrades to lexical
     chunk_ids = [cid for cid, _ in knn]
     distance = dict(knn)
-    placeholders = ",".join("?" for _ in chunk_ids)
-    clause, params = _collection_clause(collections)
-    if not chunk_ids:
-        return []
-    meta = conn.execute(
-        f"""
-        SELECT c.id AS chunk_id, c.pos, c.length, d.id, d.collection, d.relpath, d.title, d.hash
-        FROM chunks c JOIN documents d ON d.id = c.doc_id
-        WHERE c.id IN ({placeholders}) AND d.active = 1{clause}
-        """,
-        [*chunk_ids, *params],
-    ).fetchall()
+    meta = []
+    # A complete tie cohort can exceed SQLite's host-parameter limit.
+    for start in range(0, len(chunk_ids), 900):
+        batch = chunk_ids[start:start + 900]
+        placeholders = ",".join("?" for _ in batch)
+        meta.extend(conn.execute(
+            f"""
+            SELECT c.id AS chunk_id, c.seq, c.pos, c.length, d.id, d.collection,
+                   d.relpath, d.title, d.hash, d.active
+            FROM chunks c JOIN documents d ON d.id = c.doc_id
+            WHERE c.id IN ({placeholders})
+            """,
+            batch,
+        ).fetchall())
+    meta.sort(key=lambda r: (distance[r["chunk_id"]], r["collection"],
+                             r["relpath"], r["seq"]))
+    allowed = set(collections) if collections else None
 
     best: dict[int, Result] = {}
     chunk_pos: dict[int, tuple[int, int]] = {}
-    for r in meta:
+    for r in meta[:cap]:
+        if not r["active"] or (allowed is not None and r["collection"] not in allowed):
+            continue
         score = 1.0 - distance[r["chunk_id"]]  # cosine distance -> similarity
-        if r["id"] not in best or score > best[r["id"]].score:
+        if r["id"] not in best:
             best[r["id"]] = Result(
                 doc_id=r["id"], collection=r["collection"], relpath=r["relpath"],
                 title=r["title"], docid=r["hash"][:6], score=score,
             )
             chunk_pos[r["id"]] = (r["pos"], r["length"])
-    results = sorted(best.values(), key=lambda x: x.score, reverse=True)[:limit]
+    results = sorted(best.values(), key=lambda r: (-r.score, r.collection, r.relpath))[:limit]
     _attach_chunk_snippets(conn, results, chunk_pos)
     return results
 
@@ -209,4 +240,4 @@ def rrf_fuse(ranked_lists: list[tuple[str, float, list[Result]]], limit: int) ->
                     title=res.title, docid=res.docid, score=contribution,
                     snippet=res.snippet, sources={source: res.score},
                 )
-    return sorted(fused.values(), key=lambda r: r.score, reverse=True)[:limit]
+    return sorted(fused.values(), key=lambda r: (-r.score, r.collection, r.relpath))[:limit]

@@ -63,3 +63,37 @@ def test_backend_mismatch_is_hard_error(conn, store, tmp_path):
     with pytest.raises(RuntimeError, match="pinned to vector backend"):
         dbmod.ensure_vectors(conn, duck, TEST_PROFILE.dim, profile_fingerprint(TEST_PROFILE),
                              TEST_PROFILE.model, TEST_PROFILE.name)
+
+
+def test_duckdb_orders_retrieved_equal_neighbours_across_reindexes(tmp_path):
+    # HNSW may choose different members of a tied cohort; assert order only.
+    tied = [f"tied-{i:02d}.md" for i in range(20)]
+    far = [f"far-{i:02d}.md" for i in range(3)]
+
+    class FixedEmbedder:
+        def embed_queries(self, queries):
+            return np.array([[1.0, 0.0]], dtype=np.float32)
+
+    for index, paths in enumerate((list(reversed(tied + far)), tied + far)):
+        conn = dbmod.connect(tmp_path / f"duck-{index}.db")
+        store = DuckDBStore(sidecar_path(tmp_path / f"duck-{index}.db"))
+        try:
+            dbmod.init_schema(conn)
+            store.ensure(2)
+            ids, vectors = [], []
+            for relpath in paths:
+                doc_id = conn.execute(
+                    "INSERT INTO documents(collection, relpath, title, body, hash) "
+                    "VALUES ('notes', ?, '', 'shared text', 'same')", (relpath,)).lastrowid
+                ids.append(conn.execute(
+                    "INSERT INTO chunks(doc_id, seq, pos, length) VALUES (?, 0, 0, 11)",
+                    (doc_id,)).lastrowid)
+                vectors.append([0.0, 1.0] if relpath in far else [1.0, 0.0])
+            store.add(ids, np.array(vectors, dtype=np.float32))
+            results = search.search_vector(conn, store, FixedEmbedder(), "query", limit=3)
+            assert len(results) == 3
+            assert [(r.score, r.collection, r.relpath) for r in results] == sorted(
+                [(r.score, r.collection, r.relpath) for r in results],
+                key=lambda row: (-row[0], row[1], row[2]))
+        finally:
+            conn.close()
