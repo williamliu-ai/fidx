@@ -102,12 +102,15 @@ class ErrorBoundaryGroup(click.Group):
             if json_mode:
                 if doctor_command:
                     # Doctor's diagnostic report is its result even on failure.
-                    click.echo(json.dumps([{
-                        "name": "doctor", "ok": False,
-                        "detail": payload["message"],
-                        "remediation": "Run with FIDX_DEBUG=1 for a traceback.",
-                        "hard": True,
-                    }]))
+                    click.echo(json.dumps({
+                        "schema": "fidx.doctor.v1", "ok": False,
+                        "checks": [{
+                            "name": "doctor", "ok": False,
+                            "detail": payload["message"],
+                            "remediation": "Run with FIDX_DEBUG=1 for a traceback.",
+                            "hard": True,
+                        }],
+                    }))
                 else:
                     click.echo(json.dumps(payload, ensure_ascii=False))
             else:
@@ -155,14 +158,17 @@ def doctor(as_json: bool) -> None:
     from . import diagnostics
     as_json = as_json or click.get_current_context().find_root().obj["error_json"]
     checks = diagnostics.capabilities()
+    hard = diagnostics.hard_failures(checks)
     if as_json:
-        click.echo(json.dumps([c.__dict__ for c in checks], indent=2))
+        click.echo(json.dumps({
+            "schema": "fidx.doctor.v1", "ok": not hard,
+            "checks": [c.__dict__ for c in checks],
+        }, indent=2))
     else:
         for c in checks:
             click.echo(f"[{'OK  ' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
             if not c.ok and c.remediation:
                 click.echo(f"        -> {c.remediation}")
-    hard = diagnostics.hard_failures(checks)
     if hard:
         if not as_json:
             click.echo(f"\n{len(hard)} hard check(s) failed — fidx cannot run on this host.",
@@ -253,20 +259,21 @@ def collection_remove(ctx: click.Context, name: str) -> None:
 @click.option("--recalibrate-after", type=float, default=0.1, show_default=True,
               help="Recalibrate once changed docs since last calibration reach this "
                    "fraction of the corpus (min 100 docs).")
+@click.option("--json", "as_json", is_flag=True, help="Versioned machine-readable index result.")
 @click.pass_context
 def index(ctx: click.Context, only: str | None, profile: str | None, threads: int | None,
           parallel: int | None, backend: str | None, do_calibrate: bool,
-          recalibrate_after: float) -> None:
+          recalibrate_after: float, as_json: bool) -> None:
     """Scan collections and (re)build chunks + embeddings incrementally."""
     db_path = ctx.obj["db_path"]
     with index_lock(db_path):
         _index_unlocked(ctx, only, profile, threads, parallel, backend,
-                        do_calibrate, recalibrate_after)
+                        do_calibrate, recalibrate_after, as_json)
 
 
 def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                     threads: int | None, parallel: int | None, backend: str | None,
-                    do_calibrate: bool, recalibrate_after: float) -> None:
+                    do_calibrate: bool, recalibrate_after: float, as_json: bool) -> None:
     db_path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, profile)
     db.ensure_instance_id(conn)
@@ -287,14 +294,16 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
     indexer.embed_pending(conn, store, FastEmbedder(prof, threads=threads, parallel=parallel),
                           stats, progress=True)
     elapsed = time.perf_counter() - t0
-    click.echo(
-        f"indexed in {elapsed:.1f}s: +{stats.added} added, ~{stats.updated} updated, "
-        f"-{stats.removed} removed, {stats.unchanged} unchanged, "
-        f"{stats.embedded_chunks} chunks embedded [{prof.name}/{store.name}]"
-    )
+    if not as_json:
+        click.echo(
+            f"indexed in {elapsed:.1f}s: +{stats.added} added, ~{stats.updated} updated, "
+            f"-{stats.removed} removed, {stats.unchanged} unchanged, "
+            f"{stats.embedded_chunks} chunks embedded [{prof.name}/{store.name}]"
+        )
     for err in stats.errors:
         click.echo(f"warning: {err}", err=True)
 
+    calibration_state = "skipped"
     if do_calibrate:
         # Calibration estimates a corpus-wide score-distribution floor, so a few
         # changed docs barely move it. Accumulate changes in meta and recalibrate
@@ -312,24 +321,36 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
         threshold = calibratemod.recalibration_threshold(n_now, recalibrate_after)
         if not calibratemod.should_recalibrate(have_floor, pending, n_now, recalibrate_after):
             db.set_meta(conn, "calib_changes", str(pending))
-            click.echo(f"calibration skipped (+{changed} changed, {pending}/{threshold} "
-                       f"since last; floor={db.get_meta(conn, 'truncate_floor')})")
+            if not as_json:
+                click.echo(f"calibration skipped (+{changed} changed, {pending}/{threshold} "
+                           f"since last; floor={db.get_meta(conn, 'truncate_floor')})")
         else:
             cal = calibratemod.calibrate(conn, store, FastEmbedder(prof, threads=threads), seed=0)
             if cal.get("n_pos"):
+                calibration_state = "applied"
                 db.set_meta(conn, "truncate_floor", str(cal["floor"]))
                 db.set_meta(conn, "calib_changes", "0")
-                click.echo(
-                    f"calibrated truncate_floor={cal['floor']} "
-                    f"(rejects {cal['neg_rejected_at_floor']:.0%} noise, "
-                    f"keeps {cal['pos_retained_at_floor']:.0%} answers; "
-                    f"search --truncate calibrated)")
+                if not as_json:
+                    click.echo(
+                        f"calibrated truncate_floor={cal['floor']} "
+                        f"(rejects {cal['neg_rejected_at_floor']:.0%} noise, "
+                        f"keeps {cal['pos_retained_at_floor']:.0%} answers; "
+                        f"search --truncate calibrated)")
             else:
+                calibration_state = "deferred"
                 # too few/no samples (e.g. emptied corpus): keep accumulating the
                 # change count so it isn't lost, and retry next index.
                 db.set_meta(conn, "calib_changes", str(pending))
-                click.echo("calibration deferred (insufficient samples)")
+                if not as_json:
+                    click.echo("calibration deferred (insufficient samples)")
     db.set_meta(conn, "last_index_completed_at", freshness.completed_at())
+    if as_json:
+        click.echo(json.dumps({
+            "schema": "fidx.index.v1", "added": stats.added,
+            "updated": stats.updated, "removed": stats.removed,
+            "embedded_chunks": stats.embedded_chunks, "seconds": elapsed,
+            "calibration": calibration_state, "warnings": stats.errors,
+        }, ensure_ascii=False))
 
 
 @main.command()
@@ -491,8 +512,9 @@ def get(ctx: click.Context, target: str, full: bool, as_json: bool,
 
 
 @main.command()
+@click.option("--json", "as_json", is_flag=True, help="Versioned machine-readable status.")
 @click.pass_context
-def status(ctx: click.Context) -> None:
+def status(ctx: click.Context, as_json: bool) -> None:
     """Index health: collections, documents, chunks, vectors, size."""
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, create=False)
@@ -500,6 +522,21 @@ def status(ctx: click.Context) -> None:
     chunks = conn.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"]
     store = vector_store.open_store(conn, db_path)
     vecs = store.count()
+    if as_json:
+        collections = []
+        for row in conn.execute("SELECT name, root FROM collections ORDER BY name"):
+            count = conn.execute(
+                "SELECT count(*) AS n FROM documents WHERE collection = ?", (row["name"],)
+            ).fetchone()["n"]
+            collections.append({"name": row["name"], "root": row["root"],
+                                "documents": count})
+        click.echo(json.dumps({
+            "schema": "fidx.status.v1", "db_path": str(db_path),
+            "profile": prof.name, "backend": store.name,
+            "collections": collections, "documents": docs, "chunks": chunks,
+            "embedded_chunks": vecs,
+        }, ensure_ascii=False))
+        return
     size_mb = db_path.stat().st_size / 1e6 if db_path.exists() else 0
     sidecar = vector_store.sidecar_path(db_path)
     if store.name == "duckdb" and sidecar.exists():

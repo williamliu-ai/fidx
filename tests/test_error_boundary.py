@@ -182,10 +182,13 @@ def test_doctor_json_hard_failure_keeps_own_report(monkeypatch):
         result = CliRunner().invoke(cli.main, args)
         assert result.exit_code == 1
         assert result.stderr == ""
-        assert json.loads(result.stdout) == [{
-            "name": "fts5", "ok": False, "detail": "unavailable",
-            "remediation": "", "hard": True,
-        }]
+        assert json.loads(result.stdout) == {
+            "schema": "fidx.doctor.v1", "ok": False,
+            "checks": [{
+                "name": "fts5", "ok": False, "detail": "unavailable",
+                "remediation": "", "hard": True,
+            }],
+        }
 
 
 def test_doctor_unexpected_failure_still_uses_doctor_report(monkeypatch):
@@ -197,9 +200,10 @@ def test_doctor_unexpected_failure_still_uses_doctor_report(monkeypatch):
     assert result.exit_code == 1
     assert result.stderr == ""
     report = json.loads(result.stdout)
-    assert isinstance(report, list)
-    assert report[0]["name"] == "doctor"
-    assert report[0]["hard"] is True
+    assert report["schema"] == "fidx.doctor.v1"
+    assert report["ok"] is False
+    assert report["checks"][0]["name"] == "doctor"
+    assert report["checks"][0]["hard"] is True
     assert "fidx.error.v1" not in result.stdout
 
 

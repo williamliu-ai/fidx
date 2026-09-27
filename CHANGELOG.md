@@ -7,6 +7,9 @@ All notable changes to fidx are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `index --json` and `status --json` return versioned `fidx.index.v1` and
+  `fidx.status.v1` objects. Index progress and warnings go to stderr; warnings
+  are also included in the successful JSON result.
 - `fidx.error.v1` JSON execution errors and stable exit codes for generic,
   usage, index, database-lock, missing-model, and ambiguous-reference failures.
   Use root `--json` for commands without their own JSON result option;
@@ -16,6 +19,10 @@ All notable changes to fidx are documented here. The format follows
   default embedding profile is available locally.
 
 ### Changed
+- **Breaking:** `doctor --json` now wraps its diagnostic checks in a
+  `fidx.doctor.v1` object with `ok` and `checks`, rather than returning a bare
+  array. Each check retains its remediation text. Soft failures leave `ok`
+  true; hard failures exit 1.
 - Hybrid/vector search, daemon startup, and calibration now load embedding
   models from local files only. On a cold cache they exit with a `fidx models
   fetch embed` hint instead of implicitly downloading. A valid empty index

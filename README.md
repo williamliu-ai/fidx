@@ -109,6 +109,7 @@ fidx collection add ~/mail/export --name emails --glob "**/*.txt"
 
 # Scan + chunk + embed (incremental; first run downloads the ONNX model)
 fidx index
+fidx index --json  # one versioned result; progress and warnings go to stderr
 
 # Optional: acquire a model before searching an existing index on a new machine
 fidx models fetch embed
@@ -157,6 +158,14 @@ fetch command while online, or run `fidx index`, before using these commands
 offline. `fidx doctor --json` reports the default embedding profile's local
 availability in its `embedding_model` row. `fidx models fetch rerank` is reserved
 for the optional reranker and is unavailable in this release.
+
+For scripts, `fidx index --json` emits one `fidx.index.v1` object with document
+and embedding counts, elapsed seconds, `calibration` (`applied`, `skipped`, or
+`deferred`), and `warnings`. Progress and warnings go to stderr; a fatal error
+returns only `fidx.error.v1` on stdout. `fidx status --json` reports index
+counts and registered collections in `fidx.status.v1`. `fidx doctor --json`
+returns `fidx.doctor.v1` with `ok` and detailed `checks`; soft failures keep
+`ok: true`, while a hard failure exits 1.
 
 ### CLI errors and exit codes
 
