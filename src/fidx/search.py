@@ -18,6 +18,7 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 
+from .db import has_chunk_line_columns
 from .embedder import Embedder
 
 RRF_K = 60
@@ -44,6 +45,9 @@ class Result:
     snippet: str = ""
     sources: dict[str, float] = field(default_factory=dict)
     tier: str = ""  # lexical: "and" (all terms matched) or "or" (fill)
+    matched_chunk_id: int | None = None
+    line_start: int | None = None
+    line_end: int | None = None
 
 
 _TOKEN_RE = re.compile(r"[\w']+", re.UNICODE)
@@ -167,6 +171,8 @@ def search_vector(conn: sqlite3.Connection, store, embedder: Embedder, query: st
     chunk_ids = [cid for cid, _ in knn]
     distance = dict(knn)
     meta = []
+    line_fields = ("c.line_start, c.line_end" if has_chunk_line_columns(conn)
+                   else "NULL AS line_start, NULL AS line_end")
     # A complete tie cohort can exceed SQLite's host-parameter limit.
     for start in range(0, len(chunk_ids), 900):
         batch = chunk_ids[start:start + 900]
@@ -174,7 +180,7 @@ def search_vector(conn: sqlite3.Connection, store, embedder: Embedder, query: st
         meta.extend(conn.execute(
             f"""
             SELECT c.id AS chunk_id, c.seq, c.pos, c.length, d.id, d.collection,
-                   d.relpath, d.title, d.hash, d.active
+                   d.relpath, d.title, d.hash, d.active, {line_fields}
             FROM chunks c JOIN documents d ON d.id = c.doc_id
             WHERE c.id IN ({placeholders})
             """,
@@ -194,6 +200,8 @@ def search_vector(conn: sqlite3.Connection, store, embedder: Embedder, query: st
             best[r["id"]] = Result(
                 doc_id=r["id"], collection=r["collection"], relpath=r["relpath"],
                 title=r["title"], docid=r["hash"][:6], score=score,
+                matched_chunk_id=r["chunk_id"], line_start=r["line_start"],
+                line_end=r["line_end"],
             )
             chunk_pos[r["id"]] = (r["pos"], r["length"])
     results = sorted(best.values(), key=lambda r: (-r.score, r.collection, r.relpath))[:limit]
@@ -234,10 +242,16 @@ def rrf_fuse(ranked_lists: list[tuple[str, float, list[Result]]], limit: int) ->
                 f.sources[source] = res.score
                 if not f.snippet and res.snippet:
                     f.snippet = res.snippet
+                if res.matched_chunk_id is not None:
+                    f.matched_chunk_id = res.matched_chunk_id
+                    f.line_start = res.line_start
+                    f.line_end = res.line_end
             else:
                 fused[res.doc_id] = Result(
                     doc_id=res.doc_id, collection=res.collection, relpath=res.relpath,
                     title=res.title, docid=res.docid, score=contribution,
                     snippet=res.snippet, sources={source: res.score},
+                    matched_chunk_id=res.matched_chunk_id,
+                    line_start=res.line_start, line_end=res.line_end,
                 )
     return sorted(fused.values(), key=lambda r: (-r.score, r.collection, r.relpath))[:limit]

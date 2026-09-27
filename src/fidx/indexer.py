@@ -14,6 +14,7 @@ with their chunks and vectors.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from fnmatch import fnmatchcase
 import hashlib
 import json
@@ -24,9 +25,41 @@ from pathlib import Path
 
 from .chunker import chunk_text, extract_title
 from .config import DEFAULT_GLOBS
+from .db import has_chunk_line_columns
 from .embedder import Embedder
 
 EMBED_BATCH_CHUNKS = 256
+
+
+def _newlines(body: str) -> list[int]:
+    return [i for i, char in enumerate(body) if char == "\n"]
+
+
+def _chunk_lines(newlines: list[int], pos: int, length: int) -> tuple[int, int]:
+    """Map a nonempty [pos, pos+length) span to inclusive, 1-based lines."""
+    return 1 + bisect_left(newlines, pos), 1 + bisect_left(newlines, pos + length - 1)
+
+
+def _backfill_chunk_lines(conn: sqlite3.Connection, collection: str) -> None:
+    """Fill old chunks only when their collection is next indexed."""
+    if not has_chunk_line_columns(conn):
+        return
+    doc_ids = [row["id"] for row in conn.execute(
+        "SELECT DISTINCT d.id FROM documents d JOIN chunks c ON c.doc_id = d.id "
+        "WHERE d.collection = ? AND (c.line_start IS NULL OR c.line_end IS NULL)",
+        (collection,),
+    )]
+    for doc_id in doc_ids:
+        body = conn.execute("SELECT body FROM documents WHERE id = ?", (doc_id,)).fetchone()["body"]
+        newlines = _newlines(body)
+        for chunk in conn.execute(
+            "SELECT id, pos, length FROM chunks WHERE doc_id = ? "
+            "AND (line_start IS NULL OR line_end IS NULL)", (doc_id,),
+        ).fetchall():
+            if chunk["length"] > 0:
+                line_start, line_end = _chunk_lines(newlines, chunk["pos"], chunk["length"])
+                conn.execute("UPDATE chunks SET line_start = ?, line_end = ? WHERE id = ?",
+                             (line_start, line_end, chunk["id"]))
 
 
 @dataclass
@@ -196,12 +229,14 @@ def sync_collection(conn: sqlite3.Connection, store, name: str, stats: IndexStat
         else:
             conn.execute("UPDATE documents SET mtime = ? WHERE id = ?", (mtime, existing["id"]))
             stats.unchanged += 1
+    _backfill_chunk_lines(conn, name)
     conn.commit()
 
 
 def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: IndexStats,
                   progress: bool = False) -> None:
     """Chunk and embed every document that has no chunks yet."""
+    line_columns = has_chunk_line_columns(conn)
     # Ids only — bodies are fetched one document at a time so a 100k-doc
     # backlog doesn't materialize the whole corpus in memory.
     pending = [
@@ -232,11 +267,20 @@ def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: In
             continue
         # Prepend the title so every chunk carries document identity.
         prefix = f"{doc['title']}\n" if doc["title"] else ""
+        newlines = _newlines(doc["body"]) if line_columns else []
         for chunk in chunk_text(doc["body"]):
-            cur = conn.execute(
-                "INSERT INTO chunks(doc_id, seq, pos, length) VALUES (?, ?, ?, ?)",
-                (doc_id, chunk.seq, chunk.pos, chunk.length),
-            )
+            if line_columns:
+                line_start, line_end = _chunk_lines(newlines, chunk.pos, chunk.length)
+                cur = conn.execute(
+                    "INSERT INTO chunks(doc_id, seq, pos, length, line_start, line_end) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (doc_id, chunk.seq, chunk.pos, chunk.length, line_start, line_end),
+                )
+            else:
+                cur = conn.execute(
+                    "INSERT INTO chunks(doc_id, seq, pos, length) VALUES (?, ?, ?, ?)",
+                    (doc_id, chunk.seq, chunk.pos, chunk.length),
+                )
             batch_texts.append(prefix + doc["body"][chunk.pos : chunk.pos + chunk.length])
             batch_chunk_ids.append(cur.lastrowid)
             if len(batch_texts) >= EMBED_BATCH_CHUNKS:

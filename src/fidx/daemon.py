@@ -67,8 +67,9 @@ def _result_sources(result: searchmod.Result, mode: str) -> dict[str, float]:
 
 
 def serialize_results(results: list[searchmod.Result], mode: str) -> list[dict]:
-    return [
-        {
+    serialized = []
+    for rank, r in enumerate(results, 1):
+        row = {
             "rank": rank,
             "path": f"{r.collection}/{r.relpath}",
             "collection": r.collection,
@@ -79,8 +80,10 @@ def serialize_results(results: list[searchmod.Result], mode: str) -> list[dict]:
             "snippet": r.snippet,
             "sources": _result_sources(r, mode),
         }
-        for rank, r in enumerate(results, 1)
-    ]
+        if r.line_start is not None and r.line_end is not None:
+            row["locations"] = [{"line_start": r.line_start, "line_end": r.line_end}]
+        serialized.append(row)
+    return serialized
 
 
 def _unknown_collections(conn, collections: list[str]) -> list[str]:
