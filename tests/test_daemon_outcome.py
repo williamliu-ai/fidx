@@ -109,6 +109,54 @@ def test_protocol_ack_is_internal_and_does_not_mutate_request(monkeypatch, tmp_p
     assert json.loads(fake.sent)["guidance_protocol"] == 1
 
 
+def test_rerank_protocol_strips_private_wire_keys_and_preserves_caller(
+        monkeypatch, tmp_path):
+    model = "Xenova/ms-marco-MiniLM-L-6-v2"
+    state = {"enabled": True, "model": model}
+    response = _response(ack=1)
+    response.update({"rerank_protocol": 1, "rerank_effective": state})
+    fake = _request(monkeypatch, tmp_path, response)
+    req = {"cmd": "search", "query": "topic", "_rerank_model": model}
+    result = daemon.client_request_outcome(
+        tmp_path / "index.db", req, expected_instance_id="current",
+        require_guidance_protocol=True, rerank_effective=state)
+    assert result.path == "daemon"
+    assert req["_rerank_model"] == model
+    sent = json.loads(fake.sent)
+    assert "_rerank_model" not in sent
+    assert sent["rerank_protocol"] == sent["guidance_protocol"] == 1
+    assert sent["rerank_effective"] == state
+
+
+@pytest.mark.parametrize("ack", [None, True, "1", 2])
+def test_rerank_protocol_rejects_old_or_mismatched_ack(monkeypatch, tmp_path, ack):
+    state = {"enabled": False, "advice_flag": "--no-rerank"}
+    response = _response()
+    if ack is not None:
+        response.update({"rerank_protocol": ack, "rerank_effective": state})
+    _request(monkeypatch, tmp_path, response)
+    result = daemon.client_request_outcome(
+        tmp_path / "index.db", {"cmd": "search", "query": "topic"},
+        expected_instance_id="current", rerank_effective=state)
+    assert result.path == "cold" and result.fallback_cause == "malformed_response"
+
+
+@pytest.mark.parametrize("wrong", [
+    {"enabled": True, "model": "Xenova/ms-marco-MiniLM-L-6-v2"},
+    {"enabled": 0, "advice_flag": "--no-rerank"},
+    {"enabled": False, "advice_flag": "--rerank=bad"},
+])
+def test_rerank_protocol_rejects_wrong_effective_state(monkeypatch, tmp_path, wrong):
+    state = {"enabled": False, "advice_flag": "--no-rerank"}
+    response = _response()
+    response.update({"rerank_protocol": 1, "rerank_effective": wrong})
+    _request(monkeypatch, tmp_path, response)
+    result = daemon.client_request_outcome(
+        tmp_path / "index.db", {"cmd": "search", "query": "topic"},
+        expected_instance_id="current", rerank_effective=state)
+    assert result.path == "cold" and result.fallback_cause == "malformed_response"
+
+
 @pytest.mark.parametrize("ack", [True, "1", 2])
 def test_protocol_ack_requires_exact_integer_version(monkeypatch, tmp_path, ack):
     _request(monkeypatch, tmp_path, _response(ack=ack))

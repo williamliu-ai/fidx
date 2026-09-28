@@ -446,6 +446,61 @@ def _guidance_response_valid(candidate: dict, req: dict, *, guidance_on: bool,
     return isinstance(diagnostics.get("qpp"), dict) if explain else "qpp" not in diagnostics
 
 
+def _rerank_response_valid(candidate: dict, state: dict) -> bool:
+    """Check an acknowledged daemon used the state in output and advice."""
+    request = candidate.get("request")
+    summary = candidate.get("summary")
+    actions = candidate.get("next_actions")
+    if (not isinstance(request, dict) or not isinstance(summary, dict)
+            or not isinstance(actions, list)):
+        return False
+    if state["enabled"]:
+        if request.get("rerank") != {"model": state["model"]}:
+            return False
+        flag = "--rerank=" + state["model"]
+    else:
+        if "rerank" in request:
+            return False
+        flag = "--no-rerank"
+    advice = summary.get("truncation_advice")
+    if not isinstance(advice, dict) or not isinstance(advice.get("options"), list):
+        return False
+    options = advice["options"]
+    if (len(options) != 3 or not isinstance(options[0], dict)
+            or options[0].get("intent") not in ("keep_current", "disable_truncation")
+            or not isinstance(options[1], dict)
+            or options[1].get("intent") != "clean_shortlist"
+            or not isinstance(options[2], dict)
+            or options[2].get("intent") != "use_calibrated_abstention"
+            or not actions):
+        return False
+    commands = []
+    for action in actions:
+        if not isinstance(action, dict) or "command" not in action:
+            return False
+        commands.append(action["command"])
+    for option in options:
+        if not isinstance(option, dict) or type(option.get("applicable")) is not bool:
+            return False
+        if option["applicable"] and "command" not in option:
+            return False
+        if "command" in option:
+            commands.append(option["command"])
+    search_commands = 0
+    for command in commands:
+        if not isinstance(command, list) or not all(type(arg) is str for arg in command):
+            return False
+        if command[:2] == ["fidx", "search"]:
+            if len(command) < 4:
+                return False
+            search_commands += 1
+            flags = [arg for arg in command[3:]
+                     if arg == "--no-rerank" or arg.startswith("--rerank=")]
+            if flags != [flag]:
+                return False
+    return search_commands > 0
+
+
 @main.command(cls=SearchCommand)
 @click.argument("query")
 @click.option("-c", "--collection", "collections", multiple=True,
@@ -535,30 +590,37 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
         req["explain"] = True
     if rerank_model is not None:
         req["_rerank_model"] = rerank_model
+        rerank_effective = {"enabled": True, "model": rerank_model}
     elif env_rerank is not None:
         req["_rerank_advice_off"] = True
+        rerank_effective = {"enabled": False, "advice_flag": "--no-rerank"}
+    else:
+        rerank_effective = None
 
     payload: dict | None = None
     stale_daemon = False
     fallback_cause: str | None = None
     daemon_error: str | None = None
     execution_path = "cold"
-    # Until the acknowledged rerank protocol lands, effective rerank state
-    # must use the cold path; an old daemon could silently ignore it.
-    if not no_daemon and rerank_model is None and env_rerank is None:
-        if protocol_required:
+    # Released v0.1.x indexes have no instance_id. The new rerank protocol
+    # requires identity, so use its cold path without writing read-side meta.
+    # Keep the legacy default-off route unchanged for these indexes.
+    if not no_daemon and (rerank_effective is None or instance_id):
+        if protocol_required or rerank_effective is not None:
             outcome = daemon.client_request_outcome(
                 db_path, req, expected_instance_id=instance_id,
-                require_guidance_protocol=True)
+                require_guidance_protocol=protocol_required,
+                rerank_effective=rerank_effective)
             stale_daemon = outcome.stale_instance
             fallback_cause = outcome.fallback_cause
             daemon_error = outcome.daemon_error
             if outcome.path == "daemon":
                 candidate = outcome.response["results"]
-                if _guidance_response_valid(
+                if (_guidance_response_valid(
                     candidate, req, guidance_on=guidance_on,
                     guidance_explicit=guidance is not None, explain=explain,
-                ):
+                ) and (rerank_effective is None or
+                       _rerank_response_valid(candidate, rerank_effective))):
                     payload = candidate
                     execution_path = "daemon"
                 else:

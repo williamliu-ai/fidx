@@ -27,11 +27,49 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from . import budget, config, db, freshness, rerank as rerankmod, search as searchmod, vector_store
+from . import budget, config, db, freshness, rerank as rerankmod, rerank_models, search as searchmod, vector_store
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
 GUIDANCE_DEFAULT = False  # Internal seam; a public default flip requires M-G6.
+
+
+def _validated_rerank_effective(state: object) -> dict:
+    """Validate one exact, versioned rerank state from an untrusted socket."""
+    if type(state) is not dict or type(state.get("enabled")) is not bool:
+        raise ValueError("invalid rerank effective state")
+    if state["enabled"]:
+        if set(state) != {"enabled", "model"} or type(state["model"]) is not str:
+            raise ValueError("invalid rerank effective state")
+        try:
+            canonical = rerank_models.canonical_model(state["model"])
+        except ValueError as exc:
+            raise ValueError("invalid rerank effective state") from exc
+        if state["model"] != canonical:
+            raise ValueError("rerank model must use canonical spelling")
+    elif (set(state) != {"enabled", "advice_flag"}
+          or state["advice_flag"] != "--no-rerank"):
+        raise ValueError("invalid rerank effective state")
+    return dict(state)
+
+
+def _socket_rerank_request(req: dict) -> tuple[dict, dict | None]:
+    """Private run_search markers are trusted only when derived at ingress."""
+    if "_rerank_model" in req or "_rerank_advice_off" in req:
+        raise ValueError("private rerank request fields are not accepted")
+    if "rerank_protocol" not in req and "rerank_effective" not in req:
+        return req, None
+    if type(req.get("rerank_protocol")) is not int or req["rerank_protocol"] != 1:
+        raise ValueError("unsupported rerank protocol")
+    state = _validated_rerank_effective(req.get("rerank_effective"))
+    internal = dict(req)
+    internal.pop("rerank_protocol")
+    internal.pop("rerank_effective")
+    if state["enabled"]:
+        internal["_rerank_model"] = state["model"]
+    else:
+        internal["_rerank_advice_off"] = True
+    return internal, state
 
 
 def socket_path_for(db_path: Path) -> Path:
@@ -667,6 +705,8 @@ def serve(db_path: Path, conn, store, embedder) -> None:
     daemon_fingerprint = config.profile_fingerprint(embedder.profile)
     embed_lock = threading.Lock()
     duckdb_lock = threading.Lock()
+    rerank_lock = threading.Lock()
+    rerank_slot: dict[str, object | None] = {"model": None, "scorer": None}
 
     class LockedEmbedder:
         def embed_queries(self, texts):
@@ -675,7 +715,7 @@ def serve(db_path: Path, conn, store, embedder) -> None:
 
     locked_embedder = LockedEmbedder()
 
-    def search_request(req: dict) -> dict:
+    def search_request(req: dict, rerank_state: dict | None) -> dict:
         request_conn = db.connect(db_path, create=False, read_only=True)
         try:
             # open_store only selects the backend; DuckDB opens its sidecar
@@ -695,6 +735,27 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                                 f"from daemon profile {embedder.profile.name!r}; "
                                 "restart fidx serve"
                             )
+                    if rerank_state is not None and rerank_state["enabled"]:
+                        # Scoring is a lazy iterator. Keep the lock through the
+                        # whole request so a model swap cannot overlap its use.
+                        with rerank_lock:
+                            rerank_models.probe_rerank_capability()
+                            active = request_conn.execute(
+                                "SELECT 1 FROM documents WHERE active = 1 LIMIT 1"
+                            ).fetchone() is not None
+                            scorer = None
+                            if active:
+                                model = rerank_state["model"]
+                                if rerank_slot["model"] != model:
+                                    rerank_slot["model"] = None
+                                    rerank_slot["scorer"] = None
+                                    scorer, _ = rerank_models.resolve_reranker_model(
+                                        model, local_files_only=True)
+                                    rerank_slot["model"] = model
+                                    rerank_slot["scorer"] = scorer
+                                scorer = rerank_slot["scorer"]
+                            return run_search(request_conn, request_store, locked_embedder,
+                                              req, reranker=scorer)
                     return run_search(request_conn, request_store, locked_embedder, req)
                 finally:
                     if hasattr(request_store, "close"):
@@ -715,15 +776,21 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                 return
             try:
                 req = json.loads(line)
+                if not isinstance(req, dict):
+                    raise ValueError("request must be an object")
+                req, rerank_state = _socket_rerank_request(req)
                 protocol = req.get("guidance_protocol")
                 if protocol is not None and (type(protocol) is not int or protocol != 1):
                     raise ValueError("unsupported guidance protocol")
                 if req.get("cmd") == "ping":
                     resp = {"ok": True, "pong": True}
                 else:
-                    resp = {"ok": True, "results": search_request(req)}
+                    resp = {"ok": True, "results": search_request(req, rerank_state)}
                     if protocol == 1:
                         resp["guidance_protocol"] = 1
+                    if rerank_state is not None:
+                        resp["rerank_protocol"] = 1
+                        resp["rerank_effective"] = rerank_state
             except Exception as exc:  # protocol boundary: report, don't crash server
                 resp = {"ok": False, "error": str(exc)}
             resp["instance_id"] = instance_id
@@ -776,7 +843,8 @@ class ClientOutcome:
 
 def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
                            expected_instance_id: str | None = None,
-                           require_guidance_protocol: bool = False) -> ClientOutcome:
+                           require_guidance_protocol: bool = False,
+                           rerank_effective: dict | None = None) -> ClientOutcome:
     """Classify a daemon attempt without changing the legacy client contract.
 
     A protocol request deliberately fails closed against a daemon that cannot
@@ -794,6 +862,12 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
     wire_req = dict(req)
     if require_guidance_protocol:
         wire_req["guidance_protocol"] = 1
+    if rerank_effective is not None:
+        state = _validated_rerank_effective(rerank_effective)
+        wire_req.pop("_rerank_model", None)
+        wire_req.pop("_rerank_advice_off", None)
+        wire_req["rerank_protocol"] = 1
+        wire_req["rerank_effective"] = state
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(timeout)
@@ -837,4 +911,14 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
             (type(response.get("guidance_protocol")) is not int or
              response["guidance_protocol"] != 1)):
         return ClientOutcome("cold", fallback_cause="malformed_response")
+    if rerank_effective is not None:
+        if (type(response.get("rerank_protocol")) is not int or
+                response["rerank_protocol"] != 1):
+            return ClientOutcome("cold", fallback_cause="malformed_response")
+        try:
+            returned = _validated_rerank_effective(response.get("rerank_effective"))
+        except ValueError:
+            return ClientOutcome("cold", fallback_cause="malformed_response")
+        if returned != state:
+            return ClientOutcome("cold", fallback_cause="malformed_response")
     return ClientOutcome("daemon", response=response)

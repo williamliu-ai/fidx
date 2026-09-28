@@ -214,7 +214,7 @@ def test_enabled_search_uses_cold_fake_scorer_and_echoes_canonical_model(
     monkeypatch.setattr(daemon, "client_request_outcome",
                         lambda *_a, **_k: pytest.fail("protocol daemon consulted"))
     model = "jinaai/jina-reranker-v1-tiny-en"
-    result = _invoke(path, "searchable", "--mode", mode, "--json",
+    result = _invoke(path, "searchable", "--mode", mode, "--json", "--no-daemon",
                      "--rerank=" + model.upper())
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
@@ -279,7 +279,7 @@ def test_explicit_off_with_env_on_cold_routes_and_omits_request_field(
                         lambda *_a, **_k: pytest.fail("protocol daemon consulted"))
     monkeypatch.setattr(rerank_models, "probe_rerank_capability",
                         lambda: pytest.fail("capability probed"))
-    result = _invoke(path, "searchable", "--mode", "lexical", "--json",
+    result = _invoke(path, "searchable", "--mode", "lexical", "--json", "--no-daemon",
                      "--no-rerank")
     assert result.exit_code == 0, result.output
     assert "rerank" not in json.loads(result.stdout)["request"]
