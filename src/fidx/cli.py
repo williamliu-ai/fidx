@@ -21,7 +21,7 @@ from pathlib import Path
 
 import click
 
-from . import __version__, budget, config, daemon, db, errors, freshness, indexer, vector_store
+from . import __version__, budget, config, daemon, db, errors, freshness, indexer, rerank_models, vector_store
 from .embedder import FastEmbedder
 from .locking import index_lock
 
@@ -186,10 +186,21 @@ def models() -> None:
 @models.command("fetch")
 @click.argument("target", type=click.Choice(["embed", "rerank"]), default="embed")
 @click.option("--profile", default=None, help="Embedding profile to fetch.")
-def models_fetch(target: str, profile: str | None) -> None:
-    """Fetch an embedding model for offline search."""
+@click.option("--model", default=None, help="Allowlisted reranker model to fetch.")
+def models_fetch(target: str, profile: str | None, model: str | None) -> None:
+    """Fetch a selected model for offline search."""
     if target == "rerank":
-        raise click.ClickException("rerank model fetch is available when reranking is enabled")
+        if profile is not None:
+            raise click.UsageError("--profile is for embedding models; use --model")
+        try:
+            selected = rerank_models.canonical_model(model)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        path = rerank_models.fetch_reranker_model(selected)
+        click.echo(f"fetched reranker model {selected} into {path}")
+        return
+    if model is not None:
+        raise click.UsageError("--model is for reranker models; use --profile")
     try:
         prof = config.get_profile(profile)
     except KeyError as exc:
@@ -242,7 +253,18 @@ def collection_remove(ctx: click.Context, name: str) -> None:
     click.echo(f"removed collection {name!r}")
 
 
-@main.command()
+class IndexCommand(click.Command):
+    """Keep optional prefetch values in the pinned bare-or-equals grammar."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        for index, arg in enumerate(args[:-1]):
+            if arg == "--rerank-prefetch" and not args[index + 1].startswith("-"):
+                raise click.UsageError(
+                    "use --rerank-prefetch=MODEL for an explicit model")
+        return super().parse_args(ctx, args)
+
+
+@main.command(cls=IndexCommand)
 @click.option("-c", "--collection", "only", default=None, help="Only index this collection.")
 @click.option("--profile", default=None, help=f"Embedding profile for a new index "
               f"(default {config.DEFAULT_PROFILE}; known: {', '.join(config.PROFILES)}).")
@@ -259,21 +281,31 @@ def collection_remove(ctx: click.Context, name: str) -> None:
 @click.option("--recalibrate-after", type=float, default=0.1, show_default=True,
               help="Recalibrate once changed docs since last calibration reach this "
                    "fraction of the corpus (min 100 docs).")
+@click.option("--rerank-prefetch", default=None,
+              flag_value=rerank_models.DEFAULT_RERANK_MODEL, is_flag=False,
+              help="Explicitly fetch an allowlisted reranker while indexing (optional =MODEL).")
 @click.option("--json", "as_json", is_flag=True, help="Versioned machine-readable index result.")
 @click.pass_context
 def index(ctx: click.Context, only: str | None, profile: str | None, threads: int | None,
           parallel: int | None, backend: str | None, do_calibrate: bool,
-          recalibrate_after: float, as_json: bool) -> None:
+          recalibrate_after: float, rerank_prefetch: str | None,
+          as_json: bool) -> None:
     """Scan collections and (re)build chunks + embeddings incrementally."""
+    if rerank_prefetch is not None:
+        try:
+            rerank_prefetch = rerank_models.canonical_model(rerank_prefetch)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
     db_path = ctx.obj["db_path"]
     with index_lock(db_path):
         _index_unlocked(ctx, only, profile, threads, parallel, backend,
-                        do_calibrate, recalibrate_after, as_json)
+                        do_calibrate, recalibrate_after, rerank_prefetch, as_json)
 
 
 def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                     threads: int | None, parallel: int | None, backend: str | None,
-                    do_calibrate: bool, recalibrate_after: float, as_json: bool) -> None:
+                    do_calibrate: bool, recalibrate_after: float,
+                    rerank_prefetch: str | None, as_json: bool) -> None:
     db_path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, profile)
     db.ensure_instance_id(conn)
@@ -294,12 +326,13 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
     indexer.embed_pending(conn, store, FastEmbedder(prof, threads=threads, parallel=parallel),
                           stats, progress=True)
     elapsed = time.perf_counter() - t0
-    if not as_json:
-        click.echo(
-            f"indexed in {elapsed:.1f}s: +{stats.added} added, ~{stats.updated} updated, "
-            f"-{stats.removed} removed, {stats.unchanged} unchanged, "
-            f"{stats.embedded_chunks} chunks embedded [{prof.name}/{store.name}]"
-        )
+    success_line = (
+        f"indexed in {elapsed:.1f}s: +{stats.added} added, ~{stats.updated} updated, "
+        f"-{stats.removed} removed, {stats.unchanged} unchanged, "
+        f"{stats.embedded_chunks} chunks embedded [{prof.name}/{store.name}]"
+    )
+    if not as_json and rerank_prefetch is None:
+        click.echo(success_line)
     for err in stats.errors:
         click.echo(f"warning: {err}", err=True)
 
@@ -343,7 +376,11 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                 db.set_meta(conn, "calib_changes", str(pending))
                 if not as_json:
                     click.echo("calibration deferred (insufficient samples)")
+    if rerank_prefetch is not None:
+        rerank_models.fetch_reranker_model(rerank_prefetch)
     db.set_meta(conn, "last_index_completed_at", freshness.completed_at())
+    if rerank_prefetch is not None and not as_json:
+        click.echo(success_line)
     if as_json:
         click.echo(json.dumps({
             "schema": "fidx.index.v1", "added": stats.added,

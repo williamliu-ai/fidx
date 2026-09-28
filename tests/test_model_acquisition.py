@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from fidx import cli, db
+from fidx import cli, db, rerank_models
 from fidx.config import get_profile
 
 
@@ -181,14 +181,19 @@ def test_fetch_records_cache_path_and_warm_search_uses_local_files_only(
     assert calls[-1] == (get_profile("bge-384").model, str(cache), True)
 
 
-def test_rerank_fetch_is_dark_and_does_not_load_model(monkeypatch):
+def test_rerank_fetch_uses_explicit_fake_and_does_not_load_embedding_model(
+        monkeypatch, tmp_path):
     def forbidden_embedder(*args, **kwargs):
         raise AssertionError("rerank fetch loaded an embedding model")
 
     monkeypatch.setattr(cli, "FastEmbedder", forbidden_embedder)
+    selected = []
+    monkeypatch.setattr(rerank_models, "fetch_reranker_model",
+                        lambda model: selected.append(model) or tmp_path / "fake.onnx")
     result = CliRunner().invoke(cli.main, ["models", "fetch", "rerank"])
-    assert result.exit_code != 0
-    assert "rerank" in result.output.lower()
+    assert result.exit_code == 0, result.output
+    assert selected == [rerank_models.DEFAULT_RERANK_MODEL]
+    assert rerank_models.DEFAULT_RERANK_MODEL in result.output
 
 
 def test_doctor_json_reports_embedding_model_fetch_hint(cold_cache):

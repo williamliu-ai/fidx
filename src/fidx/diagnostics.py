@@ -112,6 +112,27 @@ def capabilities() -> list[Check]:
         "model_cache", True,
         f"{cache} ({'files present' if present else 'empty — fetch or index downloads a model'})",
     ))
+    from . import rerank_models
+    try:
+        rerank_models.probe_rerank_capability()
+        rerank_capable = True
+        rerank_detail = "FastEmbed cross-encoder available"
+    except Exception as exc:
+        rerank_capable = False
+        rerank_detail = f"FastEmbed cross-encoder unavailable: {exc}"
+    checks.append(Check(
+        "rerank_capability", rerank_capable, rerank_detail,
+        remediation="" if rerank_capable else "Install `fmdidx[rerank]`.",
+    ))
+    selected = rerank_models.DEFAULT_RERANK_MODEL
+    available = (rerank_models.reranker_available_locally(selected)
+                 if rerank_capable else False)
+    checks.append(Check(
+        "rerank_model", available,
+        f"{selected} {'cached' if available else 'unavailable locally'}",
+        remediation="" if available else
+        f"Run `fidx models fetch rerank --model {selected}` while online.",
+    ))
     try:
         profile = get_profile()
     except KeyError as exc:
