@@ -113,7 +113,7 @@ def _unknown_collections(conn, collections: list[str]) -> list[str]:
 
 
 def _search_command(query: str, mode: str, collections: list[str], limit: int,
-                    min_score, truncate) -> list[str]:
+                    min_score, truncate, *, rerank_option: str | None = None) -> list[str]:
     cmd = ["fidx", "search", query, "--json"]
     if mode != "hybrid":
         cmd += ["--mode", mode]
@@ -124,6 +124,8 @@ def _search_command(query: str, mode: str, collections: list[str], limit: int,
         cmd += ["--min-score", str(min_score)]
     if truncate and truncate != "off":
         cmd += ["--truncate", str(truncate)]
+    if rerank_option is not None:
+        cmd.append(rerank_option)
     return cmd
 
 
@@ -211,7 +213,10 @@ def _truncation_option(intent: str, truncate, lean: str, applicable: bool,
 
 def _truncation_advice(query: str, mode: str, collections: list[str], limit: int,
                        min_score, truncate, pre_truncate: list[searchmod.Result],
-                       final: list[searchmod.Result], diagnostics: dict) -> dict:
+                       final: list[searchmod.Result], diagnostics: dict,
+                       *, rerank_option: str | None = None) -> dict:
+    search_command = lambda *args: _search_command(
+        *args, rerank_option=rerank_option)
     effective_truncate = truncate or "off"
     filters = diagnostics["filters"]
     calibration = diagnostics["calibration"]
@@ -343,7 +348,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
                 True,
                 off_recommended,
                 "Recall option: keep every ranked candidate and inspect the tail manually.",
-                _search_command(query, mode, collections, limit, min_score, "off"),
+                search_command(query, mode, collections, limit, min_score, "off"),
             ),
             _truncation_option(
                 "clean_shortlist",
@@ -352,7 +357,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
                 knee_applicable,
                 knee_recommended,
                 knee_reason,
-                _search_command(query, mode, collections, limit, min_score, "knee"),
+                search_command(query, mode, collections, limit, min_score, "knee"),
             ),
             _truncation_option(
                 "use_calibrated_abstention",
@@ -361,7 +366,7 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
                 floor_applicable,
                 calibrated_recommended,
                 calibrated_reason,
-                _search_command(query, mode, collections, limit, min_score, "calibrated"),
+                search_command(query, mode, collections, limit, min_score, "calibrated"),
             ),
         ],
     }
@@ -369,7 +374,9 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
 
 def _next_actions(query: str, mode: str, collections: list[str], limit: int, min_score,
                   truncate, results: list[searchmod.Result], diagnostics: dict,
-                  truncation_advice: dict) -> list[dict]:
+                  truncation_advice: dict, *, rerank_option: str | None = None) -> list[dict]:
+    search_command = lambda *args: _search_command(
+        *args, rerank_option=rerank_option)
     actions: list[dict] = []
     effective_truncate = truncate or "off"
 
@@ -401,23 +408,23 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
                 add("clean_shortlist", option["reason"], option["command"])
             add("disable_truncation",
                 "Truncation hid candidates; rerun without a tail cut if the target is missing.",
-                _search_command(query, mode, collections, limit, min_score, "off"))
+                search_command(query, mode, collections, limit, min_score, "off"))
         if mode != "lexical":
             add("try_exact_terms",
                 "If the desired item has exact names, paths, errors, or identifiers, try lexical mode.",
-                _search_command(query, "lexical", collections, limit, None, "off"))
+                search_command(query, "lexical", collections, limit, None, "off"))
         if mode != "vector":
             add("try_conceptual_terms",
                 "If the desired item uses different wording, try vector mode.",
-                _search_command(query, "vector", collections, limit, None, "off"))
+                search_command(query, "vector", collections, limit, None, "off"))
         if len(results) <= 2 and diagnostics["filters"]["after_truncate"] < limit:
             add("broaden_query",
                 "Only a narrow set returned; use fewer or broader terms if the target is missing.",
-                _search_command("<broader query>", mode, collections, limit, None, "off"))
+                search_command("<broader query>", mode, collections, limit, None, "off"))
         if diagnostics["filters"]["after_truncate"] >= limit:
             add("increase_limit",
                 "The result list reached the requested limit; ask for more candidates.",
-                _search_command(query, mode, collections, limit * 2, min_score, effective_truncate))
+                search_command(query, mode, collections, limit * 2, min_score, effective_truncate))
         return actions
 
     if diagnostics["index_empty"]:
@@ -434,17 +441,17 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
     if diagnostics["unknown_collections"]:
         add("retry_without_scope",
             "One or more requested collections are not registered.",
-            _search_command(query, mode, [], limit, min_score, effective_truncate))
+            search_command(query, mode, [], limit, min_score, effective_truncate))
     elif collections:
         add("retry_without_scope",
             "The collection scope may be too narrow.",
-            _search_command(query, mode, [], limit, min_score, effective_truncate))
+            search_command(query, mode, [], limit, min_score, effective_truncate))
 
     filters = diagnostics["filters"]
     if min_score is not None and filters["raw_count"] > filters["after_min_score"]:
         add("remove_min_score",
             "The minimum score filter removed available candidates.",
-            _search_command(query, mode, collections, limit, None, effective_truncate))
+            search_command(query, mode, collections, limit, None, effective_truncate))
     if effective_truncate != "off" and filters["after_min_score"] > filters["after_truncate"]:
         options = {o["intent"]: o for o in truncation_advice["options"]}
         action = truncation_advice["primary_action"]
@@ -454,22 +461,22 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
         else:
             add("disable_truncation",
                 "Truncation removed all candidates; rerun without a tail cut.",
-                _search_command(query, mode, collections, limit, min_score, "off"))
+                search_command(query, mode, collections, limit, min_score, "off"))
     if mode != "hybrid":
         add("try_hybrid",
             "Hybrid mode combines lexical and vector evidence and is the recall-first default.",
-            _search_command(query, "hybrid", collections, limit, None, "off"))
+            search_command(query, "hybrid", collections, limit, None, "off"))
     if mode != "lexical":
         add("try_exact_terms",
             "Use lexical mode for exact remembered words, names, paths, errors, or identifiers.",
-            _search_command(query, "lexical", collections, limit, None, "off"))
+            search_command(query, "lexical", collections, limit, None, "off"))
     if mode != "vector":
         add("try_conceptual_terms",
             "Use vector mode for synonym-heavy or conceptual wording.",
-            _search_command(query, "vector", collections, limit, None, "off"))
+            search_command(query, "vector", collections, limit, None, "off"))
     add("broaden_query",
         "Use fewer or broader terms if the query may be too specific.",
-        _search_command("<broader query>", mode, collections, limit, None, "off"))
+        search_command("<broader query>", mode, collections, limit, None, "off"))
     return actions
 
 
@@ -509,9 +516,14 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
     }
     if "_rerank_model" in req:
         request["rerank"] = {"model": req["_rerank_model"]}
+        rerank_option = f"--rerank={req['_rerank_model']}"
+    elif req.get("_rerank_advice_off"):
+        rerank_option = "--no-rerank"
+    else:
+        rerank_option = None
     truncation_advice = _truncation_advice(
         req["query"], mode, collections, limit, min_score, truncate, after_min,
-        final, diagnostics)
+        final, diagnostics, rerank_option=rerank_option)
     summary = {
         "result_count": len(final),
         "confidence": _confidence(final, mode),
@@ -533,7 +545,8 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "diagnostics": diagnostics,
         "next_actions": _next_actions(req["query"], mode, collections, limit,
                                       min_score, truncate, final, diagnostics,
-                                      truncation_advice),
+                                      truncation_advice,
+                                      rerank_option=rerank_option),
     }
 
 

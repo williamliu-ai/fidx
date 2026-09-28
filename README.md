@@ -121,6 +121,7 @@ fidx search "Grace Hopper" --mode lexical      # exact-name lookup, no model loa
 fidx search "deployment checklist" -c notes    # scope to one collection
 fidx search "old retry decision" --truncate knee        # cleaner short list
 fidx search "old retry decision" --truncate calibrated  # corpus-calibrated abstention
+fidx search "old retry decision" --rerank             # optional cross-encoder rerank
 
 # Agent-friendly output: results plus diagnostics and suggested follow-up calls
 fidx search "error handling" --json -n 10
@@ -156,8 +157,31 @@ this machine. If a model is missing, the command exits with a `fidx models fetch
 embed --profile ...` hint; it does not download in the query path. Run that
 fetch command while online, or run `fidx index`, before using these commands
 offline. `fidx doctor --json` reports the default embedding profile's local
-availability in its `embedding_model` row. `fidx models fetch rerank` is reserved
-for the optional reranker and is unavailable in this release.
+availability in its `embedding_model` row. `fidx models fetch rerank` is the
+explicit online acquisition command for the optional reranker.
+
+Reranking is opt-in and uses a local cross-encoder, not an LLM. Install
+`fmdidx[rerank]`, fetch the selected model while online, then search offline:
+
+```sh
+fidx models fetch rerank  # provisional default: Xenova/ms-marco-MiniLM-L-6-v2
+fidx search "old retry decision" --rerank --json
+fidx search "old retry decision" --rerank=jinaai/jina-reranker-v1-tiny-en --json
+fidx search "old retry decision" --no-rerank  # overrides FIDX_RERANK
+```
+
+`fidx index --rerank-prefetch[=MODEL]` is another explicit acquisition path.
+The supported models are `Xenova/ms-marco-MiniLM-L-6-v2`,
+`Xenova/ms-marco-MiniLM-L-12-v2`, `jinaai/jina-reranker-v1-tiny-en`, and
+`jinaai/jina-reranker-v1-turbo-en`. Bare `--rerank` and truthy `FIDX_RERANK`
+currently select the provisional MiniLM-L6 default; a supported model name in
+the environment selects that model. Search only uses already cached files and
+never downloads a reranker. When reranking succeeds, `results[].score` is a
+sigmoid-normalized value used for ranking and `--min-score`, while
+`results[].sources.rerank` is the raw cross-encoder logit. A stored calibrated
+fused-score floor does not transfer to that scale: `--truncate calibrated`
+uses its knee step after a successful rerank. A runtime scorer failure returns
+the original retrieval order and a diagnostic warning.
 
 For scripts, `fidx index --json` emits one `fidx.index.v1` object with document
 and embedding counts, elapsed seconds, `calibration` (`applied`, `skipped`, or

@@ -535,6 +535,8 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
         req["explain"] = True
     if rerank_model is not None:
         req["_rerank_model"] = rerank_model
+    elif env_rerank is not None:
+        req["_rerank_advice_off"] = True
 
     payload: dict | None = None
     stale_daemon = False

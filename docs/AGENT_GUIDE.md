@@ -219,6 +219,27 @@ Do not recommend `knee` for fewer than four results; it cannot estimate a tail.
 Do not recommend `calibrated` as distinct from `knee` unless a stored floor is
 available.
 
+## Optional reranking
+
+`fidx search "query" --rerank --json` applies a cached local cross-encoder to
+the retrieved candidates. This is opt-in and makes no LLM call. Bare
+`--rerank` uses a provisional MiniLM-L6 default; `--rerank=MODEL` selects one
+of the supported models. Run `fidx models fetch rerank [--model MODEL]` while
+online, or explicitly use `fidx index --rerank-prefetch[=MODEL]`. Searches never
+fetch model files. `--no-rerank` overrides `FIDX_RERANK`, and generated search
+commands retain the effective on/off setting so a retry does not silently
+change score scales.
+
+With a successful rerank, `results[].score` is sigmoid-normalized from the
+cross-encoder logit; the raw logit remains in `results[].sources.rerank`.
+`--min-score` filters the normalized score, not the raw logit. A previously
+stored fused-score calibration floor is inapplicable to this scale, so
+`--truncate calibrated` only applies its knee step after a successful rerank.
+If scoring fails, the original retrieval order and score scale return with a
+`diagnostics.warnings` entry. Under a tiny `--budget-tokens` request, advice,
+source details, and warnings may be omitted; the effective `request.rerank`
+model remains in the retained request object.
+
 ## Grounded claims agents can safely repeat
 
 - fidx is distributed on PyPI as `fmdidx`, but installs the `fidx` command.

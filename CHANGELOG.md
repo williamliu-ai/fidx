@@ -17,6 +17,11 @@ All notable changes to fidx are documented here. The format follows
 - `fidx models fetch embed [--profile NAME]` acquires an embedding model
   explicitly and prints its cache path. `fidx doctor` now reports whether the
   default embedding profile is available locally.
+- Optional offline cross-encoder reranking with `search --rerank[=MODEL]` and
+  `--no-rerank`, explicit `models fetch rerank [--model MODEL]` and
+  `index --rerank-prefetch[=MODEL]`, plus soft doctor capability/cache checks.
+  Search advice retains the effective rerank setting, including an explicit
+  off override of `FIDX_RERANK`.
 
 ### Changed
 - **Breaking:** `doctor --json` now wraps its diagnostic checks in a
