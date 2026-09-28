@@ -289,7 +289,8 @@ def test_failure_with_guidance_keeps_original_limit_envelope_and_trace(
     assert [r.doc_id for r in trace.fused_pool] == [r.doc_id for r in ranked[:2]]
 
 
-def test_search_help_does_not_activate_dark_reranker():
+def test_search_help_advertises_reranker_opt_in():
     result = CliRunner().invoke(main, ["search", "--help"])
     assert result.exit_code == 0
-    assert "--rerank" not in result.output
+    assert "--rerank" in result.output
+    assert "--no-rerank" in result.output

@@ -507,6 +507,8 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "min_score": min_score,
         "truncate": truncate or "off",
     }
+    if "_rerank_model" in req:
+        request["rerank"] = {"model": req["_rerank_model"]}
     truncation_advice = _truncation_advice(
         req["query"], mode, collections, limit, min_score, truncate, after_min,
         final, diagnostics)

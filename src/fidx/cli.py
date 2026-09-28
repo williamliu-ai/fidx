@@ -253,6 +253,16 @@ def collection_remove(ctx: click.Context, name: str) -> None:
     click.echo(f"removed collection {name!r}")
 
 
+class SearchCommand(click.Command):
+    """Keep the optional rerank value in the bare-or-equals grammar."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        for index, arg in enumerate(args[:-1]):
+            if arg == "--rerank" and not args[index + 1].startswith("-"):
+                raise click.UsageError("use --rerank=MODEL for an explicit model")
+        return super().parse_args(ctx, args)
+
+
 class IndexCommand(click.Command):
     """Keep optional prefetch values in the pinned bare-or-equals grammar."""
 
@@ -436,7 +446,7 @@ def _guidance_response_valid(candidate: dict, req: dict, *, guidance_on: bool,
     return isinstance(diagnostics.get("qpp"), dict) if explain else "qpp" not in diagnostics
 
 
-@main.command()
+@main.command(cls=SearchCommand)
 @click.argument("query")
 @click.option("-c", "--collection", "collections", multiple=True,
               help="Restrict to collection(s); repeatable.")
@@ -455,12 +465,18 @@ def _guidance_response_valid(candidate: dict, req: dict, *, guidance_on: bool,
 @click.option("--guidance/--no-guidance", default=None,
               help="Opt in to search guidance; disabled by default.")
 @click.option("--explain", is_flag=True, help="Include search quality signals in JSON diagnostics.")
+@click.option("--rerank", default=None,
+              flag_value=rerank_models.DEFAULT_RERANK_MODEL, is_flag=False,
+              help="Rerank results with a cached model (optional =MODEL).")
+@click.option("--no-rerank", is_flag=True,
+              help="Disable reranking, including when FIDX_RERANK is set.")
 @click.option("--no-daemon", is_flag=True, help="Skip the warm daemon even if running.")
 @click.pass_context
 def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: int,
            mode: str, as_json: bool, files_only: bool, min_score: float | None,
            truncate: str | None, budget_tokens: int | None, guidance: bool | None,
-           explain: bool, no_daemon: bool) -> None:
+           explain: bool, rerank: str | None, no_rerank: bool,
+           no_daemon: bool) -> None:
     """Search the index. Default mode is hybrid (best recall).
 
     \b
@@ -477,8 +493,36 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
     """
     if budget_tokens is not None and not (as_json or ctx.obj["error_json"]):
         raise click.UsageError("--budget-tokens requires --json")
+    if rerank is not None and no_rerank:
+        raise click.UsageError("--rerank and --no-rerank cannot be combined")
+    env_rerank = os.environ.get("FIDX_RERANK")
+    if no_rerank:
+        rerank_model = None
+    elif rerank is not None:
+        try:
+            rerank_model = rerank_models.canonical_model(rerank)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+    elif env_rerank is None or env_rerank.lower() in ("", "0", "false", "off", "no"):
+        rerank_model = None
+    elif env_rerank.lower() in ("1", "true", "on", "yes"):
+        rerank_model = rerank_models.DEFAULT_RERANK_MODEL
+    else:
+        try:
+            rerank_model = rerank_models.canonical_model(env_rerank)
+        except ValueError as exc:
+            raise click.UsageError(f"invalid FIDX_RERANK: {exc}") from exc
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, create=False)
+    selected_reranker = None
+    has_documents = None
+    if rerank_model is not None:
+        rerank_models.probe_rerank_capability()
+        has_documents = conn.execute(
+            "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
+        if has_documents:
+            selected_reranker, _ = rerank_models.resolve_reranker_model(
+                rerank_model, local_files_only=True)
     instance_id = db.get_meta(conn, "instance_id")
     req = {"cmd": "search", "query": query, "mode": mode,
            "collections": list(collections), "limit": limit, "min_score": min_score,
@@ -489,13 +533,17 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
         req["guidance"] = guidance_on
     if explain:
         req["explain"] = True
+    if rerank_model is not None:
+        req["_rerank_model"] = rerank_model
 
     payload: dict | None = None
     stale_daemon = False
     fallback_cause: str | None = None
     daemon_error: str | None = None
     execution_path = "cold"
-    if not no_daemon:
+    # Until the acknowledged rerank protocol lands, effective rerank state
+    # must use the cold path; an old daemon could silently ignore it.
+    if not no_daemon and rerank_model is None and env_rerank is None:
         if protocol_required:
             outcome = daemon.client_request_outcome(
                 db_path, req, expected_instance_id=instance_id,
@@ -524,12 +572,14 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                         payload = candidate
     if payload is None:
         store = vector_store.open_store(conn, db_path)
-        has_documents = conn.execute(
-            "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
+        if has_documents is None:
+            has_documents = conn.execute(
+                "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
         embedder = (FastEmbedder(prof, local_files_only=True)
                     if has_documents and mode in ("vector", "hybrid") else None)
         try:
-            payload = daemon.run_search(conn, store, embedder, req)
+            payload = daemon.run_search(
+                conn, store, embedder, req, reranker=selected_reranker)
         except ValueError as exc:
             raise click.ClickException(str(exc))
     if stale_daemon:
