@@ -240,6 +240,27 @@ def test_resume_flush_boundary_256_and_257(conn, store, embedder, corpus_dir, tm
     assert chunks == vectors
 
 
+def test_resume_nul_body_partial_document_creates_tail(conn, store, embedder, corpus_dir, tmp_path):
+    from fidx.chunker import chunk_text
+
+    # Leading NUL: SQLite LENGTH() stops at the first NUL while Python
+    # chunk offsets count the whole string, so coverage comparison must
+    # still detect the missing tail.
+    body = "\x00" + _body_for_chunk_count(369)
+    assert len(chunk_text(body)) == 369
+    _index_one_doc(conn, store, embedder, tmp_path, "nulbig.md", body)
+    # Simulate a crash after the first 256-chunk flush committed: only the
+    # first-flush prefix survives; the uncommitted tail rolled back.
+    missing = _drop_tail(conn, store, "nulbig.md", 256)
+    assert missing == 369 - 256
+    stats = indexer.IndexStats()
+    indexer.embed_pending(conn, store, embedder, stats)
+    docs, chunks, vectors = counts(conn, store)
+    assert chunks == len(chunk_text(body))
+    assert chunks == vectors
+    assert stats.embedded_chunks == missing
+
+
 def test_zero_chunk_document_still_indexed(conn, store, embedder, corpus_dir, tmp_path):
     index_all(conn, store, embedder, corpus_dir)
     (corpus_dir / "fresh.md").write_text("# Fresh note\n\nBrand new content here.")
@@ -250,6 +271,23 @@ def test_zero_chunk_document_still_indexed(conn, store, embedder, corpus_dir, tm
     assert row is not None
     n = conn.execute("SELECT count(*) AS n FROM chunks WHERE doc_id = ?", (row["id"],)).fetchone()["n"]
     assert n > 0
+    docs, chunks, vectors = counts(conn, store)
+    assert chunks == vectors
+
+
+def test_empty_body_document_indexes_with_zero_chunks(conn, store, embedder, corpus_dir, tmp_path):
+    # Empty bodies chunk to nothing, so the document keeps zero chunk rows
+    # (COALESCE(MAX(...), -1) edge: -1 < LENGTH('') = 0 reselects it every
+    # run) — indexing must still succeed and stay a no-op on re-run.
+    _index_one_doc(conn, store, embedder, tmp_path, "empty.md", "")
+    row = conn.execute("SELECT id FROM documents WHERE relpath='empty.md'").fetchone()
+    assert row is not None
+    n = conn.execute("SELECT count(*) AS n FROM chunks WHERE doc_id = ?", (row["id"],)).fetchone()["n"]
+    assert n == 0
+    stats = indexer.IndexStats()
+    indexer.embed_pending(conn, store, embedder, stats)
+    assert stats.embedded_chunks == 0
+    assert conn.execute("SELECT count(*) AS n FROM chunks WHERE doc_id = ?", (row["id"],)).fetchone()["n"] == 0
     docs, chunks, vectors = counts(conn, store)
     assert chunks == vectors
 

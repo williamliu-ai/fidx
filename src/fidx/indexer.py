@@ -246,6 +246,14 @@ def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: In
     line_columns = has_chunk_line_columns(conn)
     # Ids only — bodies are fetched one document at a time so a 100k-doc
     # backlog doesn't materialize the whole corpus in memory.
+    # SQLite LENGTH() stops at the first NUL character while Python chunk
+    # offsets count the whole string, so LENGTH(d.body) under-reports bodies
+    # containing NULs (ingestion preserves them). REPLACE/CAST-based counts
+    # cannot fix this in SQL: REPLACE is equally NUL-blind and CAST AS BLOB
+    # counts bytes, not characters. INSTR does see NULs, so NUL-containing
+    # documents are always selected here; the per-document skip of already
+    # stored (seq, pos, length) rows below is the source of truth, making
+    # fully covered NUL documents a harmless no-op.
     pending = [
         r["id"]
         for r in conn.execute(
@@ -253,6 +261,7 @@ def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: In
             "WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id) "
             "OR COALESCE((SELECT MAX(c.pos + c.length) FROM chunks c "
             "WHERE c.doc_id = d.id), -1) < LENGTH(d.body) "
+            "OR INSTR(d.body, CHAR(0)) > 0 "
             "ORDER BY d.id"
         )
     ]
