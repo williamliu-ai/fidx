@@ -14,7 +14,16 @@ import pytest
 
 pytest.importorskip("tokenizers")
 
-from fidx.embedder import MAX_EMBED_TOKENS, _cap_tokenizer, _truncate_text
+import numpy as np
+
+from fidx.config import EmbedProfile
+from fidx.embedder import (
+    EMBED_BATCH_SIZE,
+    FastEmbedder,
+    MAX_EMBED_TOKENS,
+    _cap_tokenizer,
+    _truncate_text,
+)
 
 
 def word_tokenizer(max_length: int | None = None):
@@ -60,3 +69,45 @@ def test_truncate_text_keeps_short_text_unchanged():
     tok = word_tokenizer(max_length=5)
     text = "w0 w1 w2"
     assert _truncate_text(tok, text) is text
+
+
+def test_model_disables_cpu_mem_arena(monkeypatch):
+    import fastembed
+
+    seen = {}
+
+    class FakeTextEmbedding:
+        @staticmethod
+        def list_supported_models():
+            return [{"model": "test"}]
+
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+            self.model = None
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", FakeTextEmbedding)
+    FastEmbedder(EmbedProfile(name="test", model="test", dim=2))._ensure_model()
+    assert seen.get("enable_cpu_mem_arena") is False
+
+
+def test_embed_batch_size_bounds_attention_memory():
+    # 64-sequence batches drove the ONNX arena to ~20 GB; keep runs small.
+    assert EMBED_BATCH_SIZE <= 16
+
+
+@pytest.mark.parametrize("method", ["embed_docs", "embed_queries"])
+def test_embeds_use_embed_batch_size(monkeypatch, method):
+    embedder = FastEmbedder(EmbedProfile(name="test", model="test", dim=2))
+    seen = []
+
+    class FakeModel:
+        model = None
+
+        def embed(self, texts, batch_size=None, parallel=None):
+            seen.append(batch_size)
+            return iter([np.array([1.0, 0.0], dtype=np.float32) for _ in texts])
+
+    monkeypatch.setattr(embedder, "_ensure_model", lambda: FakeModel())
+    vectors = getattr(embedder, method)(["text"] * 4)
+    assert vectors.shape == (4, 2)
+    assert seen == [EMBED_BATCH_SIZE]
