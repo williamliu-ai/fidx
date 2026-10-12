@@ -18,7 +18,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: ${{ matrix.python-version }}
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true   # advisory on PRs; the release workflow runs it blocking
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - name: pip-audit (resolved deps)
         run: |
@@ -40,7 +40,7 @@ jobs:
     # Blocking: no credential-shaped content may enter the tree.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - name: detect-secrets over tracked files
         run: |
@@ -62,7 +62,7 @@ jobs:
     # local machine details.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - name: forbidden paths
         run: |
           agent_notes='CLAU''DE.md'
