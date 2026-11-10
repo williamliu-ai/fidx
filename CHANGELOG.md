@@ -39,6 +39,11 @@ All notable changes to fidx are documented here. The format follows
   using a daemon and ignores daemon results for a replaced database.
 - `get "#prefix"` now exits 6 with matching paths when more than one document
   has the prefix, instead of silently returning the first match.
+- Embedding runs 16 sequences per ONNX Runtime call (was 64) with the CPU
+  memory arena disabled. Indexing peak memory drops from about 20 GB to under
+  3 GB with the default profile, at the same or better throughput. Stored
+  vectors shift slightly (batch padding affects the quantized model's output);
+  existing indexes stay compatible.
 
 ## [0.1.2] - 2026-07-07
 

@@ -31,6 +31,12 @@ from .config import EmbedProfile
 # well under this cap; only token-dense junk is truncated.
 MAX_EMBED_TOKENS = 768
 
+# Sequences embedded per ONNX Runtime run. Attention activations scale with
+# batch x seq^2; with the 768-token cap a 64-sequence batch made ONNX
+# Runtime's CPU arena grow to ~19 GB and retain it. 16 sequences per run and
+# arena off keep peak at a few GB with equal or better CPU throughput.
+EMBED_BATCH_SIZE = 16
+
 
 def _cap_tokenizer(tokenizer) -> None:
     """Clamp the tokenizer's truncation to MAX_EMBED_TOKENS — never raising a
@@ -116,6 +122,7 @@ class FastEmbedder:
             threads=self._threads,
             local_files_only=self._local_files_only,
             lazy_load=lazy_load,
+            enable_cpu_mem_arena=False,
         )
 
     def fetch(self) -> Path:
@@ -149,7 +156,7 @@ class FastEmbedder:
                 _cap_tokenizer(tokenizer)
         return self._model
 
-    def _embed(self, texts: Iterable[str], batch_size: int = 64,
+    def _embed(self, texts: Iterable[str], batch_size: int = EMBED_BATCH_SIZE,
                parallel: int | None = None) -> np.ndarray:
         model = self._ensure_model()
         texts = list(texts)

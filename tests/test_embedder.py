@@ -16,7 +16,13 @@ import numpy as np
 pytest.importorskip("tokenizers")
 
 from fidx.config import EmbedProfile
-from fidx.embedder import FastEmbedder, MAX_EMBED_TOKENS, _cap_tokenizer, _truncate_text
+from fidx.embedder import (
+    EMBED_BATCH_SIZE,
+    FastEmbedder,
+    MAX_EMBED_TOKENS,
+    _cap_tokenizer,
+    _truncate_text,
+)
 
 
 def word_tokenizer(max_length: int | None = None):
@@ -93,6 +99,85 @@ def test_embed_docs_routes_worker_count_without_forking_one_worker(
     vectors = embedder.embed_docs(["doc"] * 64)
     assert vectors.shape == (64, 2)
     assert seen == [expected]
+
+
+def test_build_model_disables_cpu_mem_arena(monkeypatch):
+    import fastembed
+
+    seen = {}
+
+    class FakeTextEmbedding:
+        @staticmethod
+        def list_supported_models():
+            return [{"model": "test"}]
+
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", FakeTextEmbedding)
+    profile = EmbedProfile(name="test", model="test", dim=2)
+    FastEmbedder(profile)._build_model()
+    assert seen.get("enable_cpu_mem_arena") is False
+    seen.clear()
+    FastEmbedder(profile)._build_model(lazy_load=True)
+    assert seen.get("enable_cpu_mem_arena") is False
+
+
+def test_embed_batch_size_bounds_attention_memory():
+    # 64-sequence batches drove the ONNX arena to ~20 GB; keep runs small.
+    assert EMBED_BATCH_SIZE <= 16
+
+
+@pytest.mark.parametrize(
+    ("parallel", "expected_parallel"),
+    [(1, None), (0, 0)],
+)
+def test_embed_docs_uses_embed_batch_size(monkeypatch, parallel, expected_parallel):
+    profile = EmbedProfile(name="test", model="test", dim=2)
+    embedder = FastEmbedder(profile, parallel=parallel)
+    seen = []
+
+    class FakeModel:
+        tokenizer = None
+
+        def embed(self, texts, batch_size=None, parallel=None):
+            seen.append((batch_size, parallel))
+            return iter([np.array([1.0, 0.0], dtype=np.float32) for _ in texts])
+
+    class Wrapper:
+        model = FakeModel()
+
+        def embed(self, *args, **kwargs):
+            return self.model.embed(*args, **kwargs)
+
+    monkeypatch.setattr(embedder, "_ensure_model", lambda: Wrapper())
+    vectors = embedder.embed_docs(["doc"] * 4)
+    assert vectors.shape == (4, 2)
+    assert seen == [(EMBED_BATCH_SIZE, expected_parallel)]
+
+
+def test_embed_queries_uses_embed_batch_size(monkeypatch):
+    profile = EmbedProfile(name="test", model="test", dim=2)
+    embedder = FastEmbedder(profile)
+    seen = []
+
+    class FakeModel:
+        tokenizer = None
+
+        def embed(self, texts, batch_size=None, parallel=None):
+            seen.append((batch_size, parallel))
+            return iter([np.array([1.0, 0.0], dtype=np.float32) for _ in texts])
+
+    class Wrapper:
+        model = FakeModel()
+
+        def embed(self, *args, **kwargs):
+            return self.model.embed(*args, **kwargs)
+
+    monkeypatch.setattr(embedder, "_ensure_model", lambda: Wrapper())
+    vectors = embedder.embed_queries(["query"] * 4)
+    assert vectors.shape == (4, 2)
+    assert seen == [(EMBED_BATCH_SIZE, None)]
 
 
 @pytest.mark.parametrize("parallel", [0, 3])
