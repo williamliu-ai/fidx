@@ -49,6 +49,9 @@ Issues = "https://github.com/williamliu-ai/fidx/issues"
 fidx = "fidx.cli:main"
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=1.30,<2",
+]
 duckdb = [
     "duckdb>=1.1,<2",
 ]

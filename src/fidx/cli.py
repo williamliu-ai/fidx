@@ -234,13 +234,43 @@ def collection_add(ctx: click.Context, root: Path, name: str, globs: tuple[str, 
 
 
 @collection.command("list")
+@click.option("--json", "as_json", is_flag=True, help="Versioned collection discovery JSON.")
 @click.pass_context
-def collection_list(ctx: click.Context) -> None:
+def collection_list(ctx: click.Context, as_json: bool) -> None:
     conn, _ = open_index(ctx.obj["db_path"], create=False)
-    for row in conn.execute("SELECT name, root, globs FROM collections ORDER BY name"):
-        count = conn.execute("SELECT count(*) AS n FROM documents WHERE collection = ?",
-                             (row["name"],)).fetchone()["n"]
-        click.echo(f"{row['name']}\t{row['root']}\t{count} docs\t{json.loads(row['globs'])}")
+    try:
+        rows = [{"name": row["name"], "root": row["root"],
+                 "globs": json.loads(row["globs"]), "doc_count": row["doc_count"]}
+                for row in conn.execute(
+                    "SELECT name, root, globs, (SELECT count(*) FROM documents "
+                    "WHERE collection = collections.name) AS doc_count "
+                    "FROM collections ORDER BY name")]
+        if as_json or ctx.obj["error_json"]:
+            click.echo(json.dumps({"schema": "fidx.collections.v1", "collections": rows},
+                                  ensure_ascii=False))
+        else:
+            for row in rows:
+                click.echo(f"{row['name']}\t{row['root']}\t{row['doc_count']} docs\t{row['globs']}")
+    finally:
+        conn.close()
+
+
+@main.command()
+@click.pass_context
+def mcp(ctx: click.Context) -> None:
+    """Run the optional local MCP server over stdio."""
+    if ctx.obj["error_json"]:
+        raise click.UsageError("--json is incompatible with MCP stdio")
+    try:
+        from .mcp_server import build_server
+        server = build_server(ctx.obj["db_path"])
+    except ModuleNotFoundError as exc:
+        if exc.name != "mcp" and not (exc.name or "").startswith("mcp."):
+            raise
+        raise click.ClickException(
+            "MCP support is unavailable; run python -m pip install 'fmdidx[mcp]'"
+        ) from None
+    server.run(transport="stdio")
 
 
 @collection.command("remove")
