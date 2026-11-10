@@ -287,8 +287,17 @@ fidx get "#a1b2c3" --json --head  # cap applies after the first 40 lines
 fidx search "where is request timeout handled?" -c code --files -n 20
 ```
 
-For MCP servers, LangChain/LangGraph tools, LlamaIndex retrievers, workflow
-nodes, or shell-based coding agents, the same contract is usually enough:
+fidx ships a stdio MCP server. Install the optional extra and select an index:
+
+```sh
+python -m pip install 'fmdidx[mcp]'
+fidx --db ./index.db mcp
+```
+
+See the [Claude Code skill](integrations/claude-code-skill/SKILL.md) and
+[agent guide](docs/AGENT_GUIDE.md) for setup and tool contracts. The core CLI
+still works without the extra. For LangChain/LangGraph tools, LlamaIndex
+retrievers, workflow nodes, or shell-based coding agents:
 `fidx search --json` returns a stable agent envelope with ranked results,
 diagnostics and suggested next actions; `fidx get` expands a selected result by
 docid or `collection/path`.
