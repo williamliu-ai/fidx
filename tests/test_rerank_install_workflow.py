@@ -23,7 +23,7 @@ def test_rerank_extra_uses_same_wheel_in_six_isolated_binary_only_cells():
 
     assert extra["needs"] == "build"
     assert extra["strategy"]["matrix"] == core["strategy"]["matrix"] == {
-        "os": ["ubuntu-latest", "windows-latest", "macos-14"],
+        "os": ["ubuntu-latest", "windows-latest", "macos-15"],
         "python": ["3.11", "3.12"],
     }
     assert extra["env"]["HF_HUB_OFFLINE"] == "1"
