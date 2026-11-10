@@ -7,6 +7,12 @@ All notable changes to fidx are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Optional MCP server: install `fmdidx[mcp]` and run `fidx --db PATH mcp` to
+  expose `fidx_search`, `fidx_get` and `fidx_collections` over stdio. Each tool
+  runs the CLI and returns its JSON envelope unchanged. Includes
+  `fidx collection list --json` (document counts per collection), a Claude Code
+  skill under `integrations/`, and an install check that runs offline on Linux,
+  macOS and Windows.
 - `index --json` and `status --json` return versioned `fidx.index.v1` and
   `fidx.status.v1` objects. Index progress and warnings go to stderr; warnings
   are also included in the successful JSON result.
