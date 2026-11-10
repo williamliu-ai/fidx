@@ -254,3 +254,23 @@ model remains in the retained request object.
 Avoid claiming that fidx is a hosted service, a vector database replacement at
 large distributed scale, a web search engine or a complete agent-memory policy
 system.
+
+## MCP stdio tools
+
+Install `python -m pip install 'fmdidx[mcp]'`; start `fidx --db ./index.db mcp`
+without root `--json`. The core CLI works without this optional extra.
+Exactly three tools expose the CLI envelopes as both text JSON and structured content:
+
+- `fidx_search(query, collection?, limit=10, budget_tokens?, guidance?)` returns
+  `fidx.search.v2`. Guidance is tri-state: true enables it, false disables it,
+  absent/null inherits the default. `request.guidance` is present for explicit
+  values or effective-on; absent with default-off. Optional budget trims output.
+- `fidx_get(docid, head=false)` returns `fidx.get.v1`, with a default 64 KiB UTF-8
+  body cap and truncation marker; head selects 40 lines before applying the cap.
+- `fidx_collections()` returns `fidx.collections.v1`: sorted names, roots, globs,
+  and `doc_count` counting all documents, including inactive rows.
+
+CLI `fidx.error.v1` failures set the tool error flag; empty search and abstention
+remain successful responses. Follow `next_actions` for missing indexes/models
+and ambiguous references; narrow collection scope before retrying broad searches.
+`fidx serve` is optional on Unix; the daemon is unavailable on Windows.
