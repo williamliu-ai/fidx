@@ -235,15 +235,33 @@ def sync_collection(conn: sqlite3.Connection, store, name: str, stats: IndexStat
 
 def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: IndexStats,
                   progress: bool = False) -> None:
-    """Chunk and embed every document that has no chunks yet."""
+    """Chunk and embed every document with missing chunks.
+
+    A document is pending when it has no chunks yet or its stored chunks do
+    not cover the whole body. The second case is an interrupted earlier run:
+    a 256-chunk flush committed a prefix of the document while the unflushed
+    tail rolled back and was never created; the repair pass below only
+    re-embeds existing rows, so without this the tail would be missed forever.
+    """
     line_columns = has_chunk_line_columns(conn)
     # Ids only — bodies are fetched one document at a time so a 100k-doc
     # backlog doesn't materialize the whole corpus in memory.
+    # SQLite LENGTH() stops at the first NUL character while Python chunk
+    # offsets count the whole string, so LENGTH(d.body) under-reports bodies
+    # containing NULs (ingestion preserves them). REPLACE/CAST-based counts
+    # cannot fix this in SQL: REPLACE is equally NUL-blind and CAST AS BLOB
+    # counts bytes, not characters. INSTR does see NULs, so NUL-containing
+    # documents are always selected here; the per-document skip of already
+    # stored (seq, pos, length) rows below is the source of truth, making
+    # fully covered NUL documents a harmless no-op.
     pending = [
         r["id"]
         for r in conn.execute(
             "SELECT d.id FROM documents d "
             "WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id) "
+            "OR COALESCE((SELECT MAX(c.pos + c.length) FROM chunks c "
+            "WHERE c.doc_id = d.id), -1) < LENGTH(d.body) "
+            "OR INSTR(d.body, CHAR(0)) > 0 "
             "ORDER BY d.id"
         )
     ]
@@ -265,10 +283,21 @@ def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: In
         doc = conn.execute("SELECT body, title FROM documents WHERE id = ?", (doc_id,)).fetchone()
         if doc is None:
             continue
+        # Chunking is deterministic for an unchanged body, so rows stored by
+        # the interrupted run are a prefix of the recomputed list; skip them
+        # and create only the missing tail. Bounded by one document's chunks.
+        existing = {
+            (r["seq"], r["pos"], r["length"])
+            for r in conn.execute(
+                "SELECT seq, pos, length FROM chunks WHERE doc_id = ?", (doc_id,)
+            )
+        }
         # Prepend the title so every chunk carries document identity.
         prefix = f"{doc['title']}\n" if doc["title"] else ""
         newlines = _newlines(doc["body"]) if line_columns else []
         for chunk in chunk_text(doc["body"]):
+            if (chunk.seq, chunk.pos, chunk.length) in existing:
+                continue
             if line_columns:
                 line_start, line_end = _chunk_lines(newlines, chunk.pos, chunk.length)
                 cur = conn.execute(
