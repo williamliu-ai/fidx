@@ -82,8 +82,15 @@ fidx collection add ./docs --name docs --glob "**/*.md" --glob "**/*.txt"
 fidx collection add ./src --name code --glob "**/*.py" --glob "**/*.ts" --glob "**/*.go" --glob "**/*.rs"
 fidx index
 fidx index --json
+fidx index --subtokens  # experimental identifier matching; off by default
 fidx serve &
 ```
+
+`fidx index --subtokens/--no-subtokens` controls experimental identifier
+subtokens for lexical search (off by default). Enabling rebuilds a derived
+table from stored document text, so the index grows. Omitting the option keeps
+the current setting. Re-run `fidx index --subtokens` to rebuild after a stale
+subtoken warning; searches use the main lexical table until repaired.
 
 Search and fetch:
 

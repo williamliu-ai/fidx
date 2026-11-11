@@ -8,7 +8,7 @@
 """SQLite storage: documents + FTS5 (BM25) + sqlite-vec (vectors), one file.
 
 Schema invariants:
-- `documents.body` is the only copy of file content; FTS5 is an external-content
+- `documents.body` is the source of file content; main FTS5 is an external-content
   table over it and chunks store (pos, length) offsets, never text.
 - `vectors` rows are keyed by chunk id; every chunk of an active document with
   embeddings has exactly one row. Vector dim is fixed at index creation by the
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 # NOTE: `sqlite_vec` is imported lazily inside connect(), not at module load, so
@@ -251,3 +252,66 @@ def ensure_instance_id(conn: sqlite3.Connection) -> str:
         instance_id = uuid.uuid4().hex
         set_meta(conn, "instance_id", instance_id)
     return instance_id
+
+
+def subtokens_table_exists(conn: sqlite3.Connection) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents_sub_fts'"
+    ).fetchone() is not None
+
+
+def subtokens_ready(conn: sqlite3.Connection) -> bool:
+    """Never trust a derived table after an unrecognized writer changed text."""
+    return (get_meta(conn, "subtokens") == "1"
+            and get_meta(conn, "subtokens_dirty") is None
+            and subtokens_table_exists(conn))
+
+
+def configure_subtokens(conn: sqlite3.Connection, enabled: bool) -> None:
+    """Rebuild from stored bodies or remove the optional table, atomically.
+
+    The caller holds the index lock. SQL-only dirty triggers also work for
+    older writers that do not know how to maintain the derived text.
+    """
+    from .subtokens import subtoken_text
+
+    with conn:
+        conn.execute("BEGIN")
+        for suffix in ("ai", "ad", "au"):
+            conn.execute(f"DROP TRIGGER IF EXISTS documents_sub_{suffix}")
+        conn.execute("DROP TABLE IF EXISTS documents_sub_fts")
+        conn.execute("DELETE FROM meta WHERE key IN ('subtokens', 'subtokens_dirty')")
+        if not enabled:
+            return
+        conn.execute("CREATE VIRTUAL TABLE documents_sub_fts USING fts5("
+                     "body_sub, tokenize='porter unicode61')")
+        for suffix, event in (("ai", "INSERT"), ("ad", "DELETE"), ("au", "UPDATE OF body")):
+            conn.execute(f"CREATE TRIGGER documents_sub_{suffix} AFTER {event} ON documents BEGIN "
+                         "INSERT OR REPLACE INTO meta(key,value) VALUES ('subtokens_dirty','1'); END")
+        conn.executemany("INSERT INTO documents_sub_fts(rowid,body_sub) VALUES (?,?)",
+                         ((row["id"], subtoken_text(row["body"])) for row in
+                          conn.execute("SELECT id,body FROM documents")))
+        conn.execute("INSERT INTO meta(key,value) VALUES ('subtokens','1')")
+
+
+@contextmanager
+def read_snapshot(conn: sqlite3.Connection):
+    """Keep feature metadata, FTS schema and search results in one snapshot."""
+    owned = not conn.in_transaction
+    if owned:
+        conn.execute("BEGIN")
+    try:
+        yield
+    finally:
+        if owned:
+            conn.rollback()
+
+
+def begin_document_write(conn: sqlite3.Connection) -> None:
+    """Reserve the writer before certifying derived text as initially clean."""
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    else:
+        # A caller may already hold a deferred transaction. Acquire its write
+        # reservation before reading the marker; a stale snapshot fails closed.
+        conn.execute("UPDATE meta SET value=value WHERE key='subtokens'")
