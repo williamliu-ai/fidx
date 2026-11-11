@@ -70,14 +70,14 @@ def offline_child(tmp_path):
     def run(args, *, lexical=False, network_expected=False):
         network_log.write_text("", encoding="utf-8")
         import_log.unlink(missing_ok=True)
-        assert all(not any(p.is_file() for p in cache.rglob("*")) for cache in caches)
+        assert not [p for cache in caches for p in cache.rglob("*") if p.is_file()]
         result = subprocess.run([sys.executable, *args], env=env,
                                 capture_output=True, encoding="utf-8", timeout=60)
         assert bool(network_log.read_text(encoding="utf-8")) is network_expected
         imports = json.loads(import_log.read_text(encoding="utf-8"))
         if lexical:
             assert imports["onnxruntime"] is False
-        assert all(not any(p.is_file() for p in cache.rglob("*")) for cache in caches)
+        assert not [p for cache in caches for p in cache.rglob("*") if p.is_file()]
         return result
 
     return run
