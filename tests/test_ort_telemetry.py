@@ -41,12 +41,17 @@ def test_telemetry_writes_prevented(tmp_path):
     env.pop("ORT_DISABLE_TELEMETRY", None)
     control_cache = tmp_path / "control"
     env["XDG_CACHE_HOME"] = str(control_cache)
-    # Import alone initializes the telemetry client; no model or session is needed.
-    _run("import onnxruntime", env)
+    # A bare import writes the files on some hosts but not on CI runners;
+    # creating a session writes them on both.
+    session = ("import onnxruntime as ort\n"
+               "from onnxruntime.datasets import get_example\n"
+               "ort.InferenceSession(get_example('sigmoid.onnx'),"
+               " providers=['CPUExecutionProvider'])\n")
+    _run(session, env)
     telemetry = "Microsoft/DeveloperTools/.onnxruntime"
     assert any(p.is_file() for p in (control_cache / telemetry).rglob("*"))
 
     protected_cache = tmp_path / "protected"
     env["XDG_CACHE_HOME"] = str(protected_cache)
-    _run("import fidx, onnxruntime", env)
+    _run("import fidx\n" + session, env)
     assert not any(p.is_file() for p in (protected_cache / telemetry).rglob("*"))
