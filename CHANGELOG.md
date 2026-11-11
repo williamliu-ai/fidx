@@ -8,8 +8,9 @@ All notable changes to fidx are documented here. The format follows
 
 ### Changed
 - fastembed 0.9 is now allowed (`fastembed>=0.6,<0.10`, and `>=0.8,<0.10` for
-  the `rerank` extra). It produces the same vectors as 0.8 for the built-in
-  profiles; existing indexes stay compatible.
+  the `rerank` extra), and `--rerank` and `fidx doctor` accept the 0.9
+  cross-encoder line. It produces the same embedding vectors and rerank scores
+  as 0.8 for the built-in models; existing indexes stay compatible.
 
 ## [0.2.0] - 2026-11-10
 
