@@ -632,10 +632,10 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
     fallback_cause: str | None = None
     daemon_error: str | None = None
     execution_path = "cold"
-    # Released v0.1.x indexes have no instance_id. The new rerank protocol
-    # requires identity, so use its cold path without writing read-side meta.
+    # Released v0.1.x indexes have no instance_id. Guidance, explain and rerank
+    # protocols require identity, so use the cold path without writing read-side meta.
     # Keep the legacy default-off route unchanged for these indexes.
-    if not no_daemon and (rerank_effective is None or instance_id):
+    if not no_daemon and (instance_id or (not protocol_required and rerank_effective is None)):
         if protocol_required or rerank_effective is not None:
             outcome = daemon.client_request_outcome(
                 db_path, req, expected_instance_id=instance_id,

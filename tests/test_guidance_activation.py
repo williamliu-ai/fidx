@@ -16,8 +16,10 @@ import threading
 from contextlib import contextmanager
 
 import pytest
+from click.testing import CliRunner
 
 from fidx import daemon, db, guidance, indexer, vector_store
+from fidx.cli import main
 from fidx.config import EmbedProfile
 from fidx.embedder import HashEmbedder
 
@@ -188,3 +190,70 @@ def test_real_daemon_ack_only_after_protocol_one_guidance_or_explain(
         rejected = daemon.client_request(path, dict(_request(), guidance_protocol=2))
         assert rejected["ok"] is False
         assert "guidance_protocol" not in rejected
+
+
+def _cli_search(path, *options):
+    result = CliRunner().invoke(main, [
+        "--db", str(path), "search", "running deployment", "--mode", "lexical",
+        "-c", "alpha", "--json", *options,
+    ])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["schema"] == "fidx.search.v2"
+    assert payload["status"] == "ok"
+    assert payload["results"]
+    return payload
+
+
+@pytest.mark.skipif(os.name != "posix", reason="production daemon uses Unix sockets")
+@pytest.mark.parametrize("option", ["--guidance", "--explain", "--no-guidance", None])
+def test_legacy_index_protocol_searches_cold_with_real_daemon(
+    scoped_index, tmp_path, monkeypatch, option,
+):
+    scoped_index.execute("DELETE FROM meta WHERE key = 'instance_id'")
+    scoped_index.commit()
+    monkeypatch.setattr(daemon, "GUIDANCE_DEFAULT", option is None)
+    options = [option] if option else []
+    path = tmp_path / "index.db"
+    with _live_server(path, tmp_path, monkeypatch):
+        cold = _cli_search(path, *options, "--no-daemon")
+        warm = _cli_search(path, *options)
+    assert warm == cold
+    active = option in ("--guidance", None)
+    assert ("confidence_reasons" in warm["summary"]) is active
+    assert ("count_relation" in warm["summary"]) is active
+    assert ("term_coverage" in warm["diagnostics"]) is active
+    assert ("qpp" in warm["diagnostics"]) is (option == "--explain")
+    if active:
+        assert warm["diagnostics"]["execution"] == {
+            "complete": True, "partial_reason": None, "path": "cold"}
+    assert db.get_meta(scoped_index, "instance_id") is None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="production daemon uses Unix sockets")
+@pytest.mark.parametrize("legacy", [True, False])
+def test_real_daemon_cli_preserves_legacy_and_current_guidance_routes(
+    scoped_index, tmp_path, monkeypatch, legacy,
+):
+    if legacy:
+        scoped_index.execute("DELETE FROM meta WHERE key = 'instance_id'")
+        scoped_index.commit()
+    else:
+        assert db.get_meta(scoped_index, "instance_id")
+    monkeypatch.setattr(daemon, "GUIDANCE_DEFAULT", False)
+    path = tmp_path / "index.db"
+    cli_thread = threading.current_thread()
+    original_open_store = vector_store.open_store
+
+    def daemon_store(*args, **kwargs):
+        assert threading.current_thread() is not cli_thread, "CLI opened a cold store"
+        return original_open_store(*args, **kwargs)
+
+    with _live_server(path, tmp_path, monkeypatch):
+        monkeypatch.setattr(vector_store, "open_store", daemon_store)
+        payload = _cli_search(path, *([] if legacy else ["--guidance"]))
+    if legacy:
+        assert "guidance" not in payload["request"]
+        assert "execution" not in payload["diagnostics"]
+    else:
+        assert payload["diagnostics"]["execution"]["path"] == "daemon"

@@ -12,6 +12,10 @@ All notable changes to fidx are documented here. The format follows
   cross-encoder line. It produces the same embedding vectors and rerank scores
   as 0.8 for the built-in models; existing indexes stay compatible.
 
+### Fixed
+- Guidance and explain searches on indexes created by fidx 0.1 now use the
+  cold path instead of failing when a daemon is running.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added
