@@ -146,7 +146,7 @@ jobs:
           from fastembed.rerank.cross_encoder import TextCrossEncoder
 
           version = metadata.version("fastembed")
-          assert version.startswith("0.8."), version
+          assert version.startswith(("0.8.", "0.9.")), version
           assert TextCrossEncoder.__module__.startswith("fastembed.rerank.cross_encoder.")
           origin = Path(inspect.getfile(TextCrossEncoder)).resolve()
           site_packages = [Path(sysconfig.get_path(key)).resolve()
