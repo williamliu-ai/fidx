@@ -7,4 +7,8 @@
 
 """fidx — fast local-only semantic search for markdown, text, chat and code."""
 
+import os
+
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+
 __version__ = "0.2.0"

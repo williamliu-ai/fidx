@@ -12,6 +12,10 @@ All notable changes to fidx are documented here. The format follows
   cross-encoder line. It produces the same embedding vectors and rerank scores
   as 0.8 for the built-in models; existing indexes stay compatible.
 
+### Fixed
+- Turn off ONNX Runtime telemetry by default, preventing device identifiers and
+  queued telemetry events from being saved unless you explicitly enable it.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added

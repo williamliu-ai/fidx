@@ -13,6 +13,9 @@ full index. Use it as a CLI, a private RAG retriever, or the search layer
 behind agent memory: millisecond warm queries, JSON output, and collection
 scoping.
 
+fidx also turns off ONNX Runtime's telemetry by setting
+`ORT_DISABLE_TELEMETRY=1` unless you set it yourself.
+
 ![fidx demo — install, index, and semantic search in about a minute](https://github.com/williamliu-ai/fidx/releases/download/v0.1.0/fidx-demo.gif)
 
 *The demo corpus is the benchmark's synthetic chat data ([attached to the
