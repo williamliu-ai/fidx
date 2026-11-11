@@ -538,6 +538,9 @@ def _rerank_response_valid(candidate: dict, state: dict) -> bool:
 @click.option("-n", "--limit", default=10, show_default=True)
 @click.option("--mode", type=click.Choice(["hybrid", "lexical", "vector"]), default="hybrid",
               show_default=True, help="hybrid = BM25 + vector with RRF fusion.")
+@click.option("--fusion", default="rrf", show_default=True,
+              help="rrf (default) or experimental weighted:W_LEX,W_VEC (hybrid only). "
+                   "Weighted fusion cannot use --truncate calibrated.")
 @click.option("--json", "as_json", is_flag=True,
               help="Machine-readable agent envelope with results, diagnostics and next actions.")
 @click.option("--files", "files_only", is_flag=True, help="Print matching paths only.")
@@ -558,7 +561,7 @@ def _rerank_response_valid(candidate: dict, state: dict) -> bool:
 @click.option("--no-daemon", is_flag=True, help="Skip the warm daemon even if running.")
 @click.pass_context
 def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: int,
-           mode: str, as_json: bool, files_only: bool, min_score: float | None,
+           mode: str, fusion: str, as_json: bool, files_only: bool, min_score: float | None,
            truncate: str | None, budget_tokens: int | None, guidance: bool | None,
            explain: bool, rerank: str | None, no_rerank: bool,
            no_daemon: bool) -> None:
@@ -576,6 +579,15 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
       Use --truncate only when the JSON truncation_advice recommends it.
       Use --budget-tokens with --json to trim presentation fields in rank order.
     """
+    from .search import parse_fusion
+    try:
+        fusion = parse_fusion(fusion)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--fusion") from exc
+    if fusion != "rrf" and mode != "hybrid":
+        raise click.UsageError("--fusion weighted requires --mode hybrid")
+    if fusion != "rrf" and truncate == "calibrated":
+        raise click.UsageError("--fusion weighted conflicts with --truncate calibrated")
     if budget_tokens is not None and not (as_json or ctx.obj["error_json"]):
         raise click.UsageError("--budget-tokens requires --json")
     if rerank is not None and no_rerank:
@@ -612,8 +624,11 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
     req = {"cmd": "search", "query": query, "mode": mode,
            "collections": list(collections), "limit": limit, "min_score": min_score,
            "truncate": truncate}
+    if fusion != "rrf":
+        req["fusion"] = fusion
     guidance_on = daemon.GUIDANCE_DEFAULT if guidance is None else guidance
-    protocol_required = guidance is not None or guidance_on or explain
+    guidance_protocol_required = guidance is not None or guidance_on or explain
+    protocol_required = guidance_protocol_required or fusion != "rrf"
     if guidance is not None or guidance_on:
         req["guidance"] = guidance_on
     if explain:
@@ -639,7 +654,7 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
         if protocol_required or rerank_effective is not None:
             outcome = daemon.client_request_outcome(
                 db_path, req, expected_instance_id=instance_id,
-                require_guidance_protocol=protocol_required,
+                require_guidance_protocol=guidance_protocol_required,
                 rerank_effective=rerank_effective)
             stale_daemon = outcome.stale_instance
             fallback_cause = outcome.fallback_cause
@@ -650,7 +665,8 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                     candidate, req, guidance_on=guidance_on,
                     guidance_explicit=guidance is not None, explain=explain,
                 ) and (rerank_effective is None or
-                       _rerank_response_valid(candidate, rerank_effective))):
+                       _rerank_response_valid(candidate, rerank_effective))
+                    and (fusion == "rrf" or candidate.get("request", {}).get("fusion") == fusion)):
                     payload = candidate
                     execution_path = "daemon"
                 else:

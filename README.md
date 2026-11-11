@@ -124,6 +124,7 @@ fidx search "Grace Hopper" --mode lexical      # exact-name lookup, no model loa
 fidx search "deployment checklist" -c notes    # scope to one collection
 fidx search "old retry decision" --truncate knee        # cleaner short list
 fidx search "old retry decision" --truncate calibrated  # corpus-calibrated abstention
+fidx search "old retry decision" --fusion weighted:1,1 # experimental hybrid fusion; RRF stays default
 fidx search "old retry decision" --rerank             # optional cross-encoder rerank
 
 # Agent-friendly output: results plus diagnostics and suggested follow-up calls
