@@ -6,6 +6,11 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Experimental hybrid `--fusion weighted:W_LEX,W_VEC` with normalized weights
+  and min-max source scores. RRF stays the default. Weighted fusion rejects
+  `--truncate calibrated` because the stored floor uses the RRF score scale.
+
 ### Changed
 - fastembed 0.9 is now allowed (`fastembed>=0.6,<0.10`, and `>=0.8,<0.10` for
   the `rerank` extra), and `--rerank` and `fidx doctor` accept the 0.9

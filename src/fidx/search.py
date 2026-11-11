@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from math import isfinite
 
 from .db import has_chunk_line_columns
 from .embedder import Embedder
@@ -229,18 +230,75 @@ def _attach_chunk_snippets(conn: sqlite3.Connection, results: list[Result],
         res.snippet = " ".join(row["s"].split()) if row else ""
 
 
+def _normalized_weights(weights: tuple[float, float]) -> tuple[float, float]:
+    if len(weights) != 2 or any(not isfinite(w) or w < 0 for w in weights) or not any(weights):
+        raise ValueError("fusion requires two finite, nonnegative weights with a positive sum")
+    if sum(weights) == 1.0:
+        return weights
+    # Scale first so even two very large finite weights cannot overflow.
+    scale = max(weights)
+    scaled = tuple(w / scale for w in weights)
+    total = sum(scaled)
+    left, right = scaled[0] / total, scaled[1] / total
+    # Pin the larger component to the complement, retaining tiny weights and
+    # making canonical strings stable across CLI/server parsing.
+    return (left, 1.0 - left) if left < right else (1.0 - right, right)
+
+
+def parse_fusion(spec: str) -> str:
+    """Canonical rrf or weighted weights (shortest round-trip repr; 0/1 endpoints)."""
+    if spec == "rrf":
+        return spec
+    if not isinstance(spec, str) or not spec.startswith("weighted:"):
+        raise ValueError("fusion must be rrf or weighted:W_LEX,W_VEC")
+    try:
+        weights = tuple(float(w) for w in spec.removeprefix("weighted:").split(","))
+        normalized = _normalized_weights(weights)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("fusion requires two finite, nonnegative weights with a positive sum") from exc
+
+    def spelling(w: float) -> str:
+        return str(int(w)) if w in (0, 1) else repr(w)
+    return "weighted:" + ",".join(spelling(w) for w in normalized)
+
+
+def weighted_fuse(ranked_lists: list[tuple[str, float, list[Result]]],
+                  weights: tuple[float, float], limit: int) -> list[Result]:
+    """Min-max source scores; retain RRF metadata and its deterministic tie order."""
+    normalized_weights = dict(zip(("lexical", "vector"), _normalized_weights(weights)))
+    scores: dict[int, float] = {}
+    for source, _, results in ranked_lists:
+        if not results:
+            continue
+        low, high = min(r.score for r in results), max(r.score for r in results)
+        for res in results:
+            normalized = (res.score - low) / (high - low) if high != low else 1.0
+            scores[res.doc_id] = scores.get(res.doc_id, 0.0) + normalized_weights[source] * normalized
+    # RRF allocates fresh Results and owns all snippet/chunk/source merging.
+    fused = rrf_fuse(ranked_lists, len(scores))
+    order = {res.doc_id: rank for rank, res in enumerate(fused)}
+    for res in fused:
+        res.score = scores[res.doc_id]
+    return sorted(fused, key=lambda r: (-r.score, order[r.doc_id], r.collection, r.relpath))[:limit]
+
+
 def search_hybrid(conn: sqlite3.Connection, store, embedder: Embedder, query: str,
                   collections: list[str] | None = None, limit: int = 10,
-                  *, trace: SearchTrace | None = None) -> list[Result]:
+                  *, trace: SearchTrace | None = None, fusion: str = "rrf") -> list[Result]:
+    fusion = parse_fusion(fusion)
     lex = search_lexical(conn, query, collections)
     vec = search_vector(conn, store, embedder, query, collections)
     lex_weight = LEXICAL_AND_WEIGHT if (lex and lex[0].tier in ("phrase", "and")) else LEXICAL_WEIGHT
     ranked_lists = [("lexical", lex_weight, lex), ("vector", VECTOR_WEIGHT, vec)]
+    fuse = rrf_fuse
+    if fusion != "rrf":
+        weights = tuple(float(w) for w in fusion.removeprefix("weighted:").split(","))
+        fuse = lambda lists, n: weighted_fuse(lists, weights, n)
     if trace is None:
-        return rrf_fuse(ranked_lists, limit)
+        return fuse(ranked_lists, limit)
     trace.lexical = tuple(lex)
     trace.vector = tuple(vec)
-    trace.fused_pool = tuple(rrf_fuse(ranked_lists, len({r.doc_id for r in lex + vec})))
+    trace.fused_pool = tuple(fuse(ranked_lists, len({r.doc_id for r in lex + vec})))
     return list(trace.fused_pool[:limit])
 
 

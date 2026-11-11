@@ -151,7 +151,8 @@ def _unknown_collections(conn, collections: list[str]) -> list[str]:
 
 
 def _search_command(query: str, mode: str, collections: list[str], limit: int,
-                    min_score, truncate, *, rerank_option: str | None = None) -> list[str]:
+                    min_score, truncate, *, rerank_option: str | None = None,
+                    fusion: str = "rrf") -> list[str]:
     cmd = ["fidx", "search", query, "--json"]
     if mode != "hybrid":
         cmd += ["--mode", mode]
@@ -162,6 +163,8 @@ def _search_command(query: str, mode: str, collections: list[str], limit: int,
         cmd += ["--min-score", str(min_score)]
     if truncate and truncate != "off":
         cmd += ["--truncate", str(truncate)]
+    if fusion != "rrf":
+        cmd += ["--fusion", fusion]
     if rerank_option is not None:
         cmd.append(rerank_option)
     return cmd
@@ -252,9 +255,9 @@ def _truncation_option(intent: str, truncate, lean: str, applicable: bool,
 def _truncation_advice(query: str, mode: str, collections: list[str], limit: int,
                        min_score, truncate, pre_truncate: list[searchmod.Result],
                        final: list[searchmod.Result], diagnostics: dict,
-                       *, rerank_option: str | None = None) -> dict:
+                       *, rerank_option: str | None = None, fusion: str = "rrf") -> dict:
     search_command = lambda *args: _search_command(
-        *args, rerank_option=rerank_option)
+        *args, rerank_option=rerank_option, fusion=fusion)
     effective_truncate = truncate or "off"
     filters = diagnostics["filters"]
     calibration = diagnostics["calibration"]
@@ -356,7 +359,9 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
         knee_reason = "Balanced option: cut the score-curve tail without corpus calibration."
     else:
         knee_reason = "No useful knee was detected in the score profile."
-    if floor_applicable:
+    if fusion != "rrf":
+        calibrated_reason = "The RRF calibration floor is inapplicable to experimental weighted fusion."
+    elif floor_applicable:
         calibrated_reason = (
             "Purity option: apply the stored corpus floor, then knee; this can abstain "
             "or drop borderline results."
@@ -412,9 +417,10 @@ def _truncation_advice(query: str, mode: str, collections: list[str], limit: int
 
 def _next_actions(query: str, mode: str, collections: list[str], limit: int, min_score,
                   truncate, results: list[searchmod.Result], diagnostics: dict,
-                  truncation_advice: dict, *, rerank_option: str | None = None) -> list[dict]:
+                  truncation_advice: dict, *, rerank_option: str | None = None,
+                  fusion: str = "rrf") -> list[dict]:
     search_command = lambda *args: _search_command(
-        *args, rerank_option=rerank_option)
+        *args, rerank_option=rerank_option, fusion=fusion)
     actions: list[dict] = []
     effective_truncate = truncate or "off"
 
@@ -447,11 +453,11 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
             add("disable_truncation",
                 "Truncation hid candidates; rerun without a tail cut if the target is missing.",
                 search_command(query, mode, collections, limit, min_score, "off"))
-        if mode != "lexical":
+        if mode != "lexical" and fusion == "rrf":
             add("try_exact_terms",
                 "If the desired item has exact names, paths, errors, or identifiers, try lexical mode.",
                 search_command(query, "lexical", collections, limit, None, "off"))
-        if mode != "vector":
+        if mode != "vector" and fusion == "rrf":
             add("try_conceptual_terms",
                 "If the desired item uses different wording, try vector mode.",
                 search_command(query, "vector", collections, limit, None, "off"))
@@ -504,11 +510,11 @@ def _next_actions(query: str, mode: str, collections: list[str], limit: int, min
         add("try_hybrid",
             "Hybrid mode combines lexical and vector evidence and is the recall-first default.",
             search_command(query, "hybrid", collections, limit, None, "off"))
-    if mode != "lexical":
+    if mode != "lexical" and fusion == "rrf":
         add("try_exact_terms",
             "Use lexical mode for exact remembered words, names, paths, errors, or identifiers.",
             search_command(query, "lexical", collections, limit, None, "off"))
-    if mode != "vector":
+    if mode != "vector" and fusion == "rrf":
         add("try_conceptual_terms",
             "Use vector mode for synonym-heavy or conceptual wording.",
             search_command(query, "vector", collections, limit, None, "off"))
@@ -540,7 +546,8 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "filters": filters,
         "calibration": _calibration(conn),
     }
-    if rerank_succeeded:
+    fusion = req.get("fusion", "rrf")
+    if rerank_succeeded or fusion != "rrf":
         diagnostics["calibration"]["floor_applicable"] = False
     results = serialize_results(final, mode)
     status = "ok" if final else ("empty_index" if index_empty else "no_results")
@@ -552,6 +559,8 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "min_score": min_score,
         "truncate": truncate or "off",
     }
+    if fusion != "rrf":
+        request["fusion"] = fusion
     if "_rerank_model" in req:
         request["rerank"] = {"model": req["_rerank_model"]}
         rerank_option = f"--rerank={req['_rerank_model']}"
@@ -561,7 +570,7 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         rerank_option = None
     truncation_advice = _truncation_advice(
         req["query"], mode, collections, limit, min_score, truncate, after_min,
-        final, diagnostics, rerank_option=rerank_option)
+        final, diagnostics, rerank_option=rerank_option, fusion=fusion)
     summary = {
         "result_count": len(final),
         "confidence": _confidence(final, mode),
@@ -584,7 +593,7 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
         "next_actions": _next_actions(req["query"], mode, collections, limit,
                                       min_score, truncate, final, diagnostics,
                                       truncation_advice,
-                                      rerank_option=rerank_option),
+                                      rerank_option=rerank_option, fusion=fusion),
     }
 
 
@@ -594,6 +603,13 @@ def run_search(conn, store, embedder, req: dict,
                rerank_n: int = 20) -> dict:
     query = req["query"]
     mode = req.get("mode", "hybrid")
+    fusion = searchmod.parse_fusion(req.get("fusion", "rrf"))
+    if fusion != "rrf" and mode != "hybrid":
+        raise ValueError("--fusion weighted requires --mode hybrid")
+    if fusion != "rrf" and req.get("truncate") == "calibrated":
+        raise ValueError("--fusion weighted conflicts with --truncate calibrated")
+    if fusion != "rrf":
+        req = {**req, "fusion": fusion}
     if ("guidance" in req and type(req["guidance"]) is not bool) or (
             "explain" in req and type(req["explain"]) is not bool):
         raise ValueError("guidance and explain must be booleans")
@@ -634,11 +650,12 @@ def run_search(conn, store, embedder, req: dict,
                 trace.fused_pool = tuple(found)
             return found
         if mode == "hybrid":
+            fusion_options = {"fusion": fusion} if fusion != "rrf" else {}
             if trace is None:
                 return searchmod.search_hybrid(
-                    conn, store, embedder, query, search_collections, window)
+                    conn, store, embedder, query, search_collections, window, **fusion_options)
             return searchmod.search_hybrid(
-                conn, store, embedder, query, search_collections, window, trace=trace)
+                conn, store, embedder, query, search_collections, window, trace=trace, **fusion_options)
         raise ValueError(f"unknown mode {mode!r}")
 
     raw = retrieve(max(limit, rerank_n) if reranker is not None else limit)
@@ -786,6 +803,9 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                     resp = {"ok": True, "pong": True}
                 else:
                     resp = {"ok": True, "results": search_request(req, rerank_state)}
+                    fusion = searchmod.parse_fusion(req.get("fusion", "rrf"))
+                    if fusion != "rrf":
+                        resp["fusion_effective"] = fusion
                     if protocol == 1:
                         resp["guidance_protocol"] = 1
                     if rerank_state is not None:
@@ -921,4 +941,7 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
             return ClientOutcome("cold", fallback_cause="malformed_response")
         if returned != state:
             return ClientOutcome("cold", fallback_cause="malformed_response")
+    fusion = searchmod.parse_fusion(req.get("fusion", "rrf"))
+    if fusion != "rrf" and response.get("fusion_effective") != fusion:
+        return ClientOutcome("cold", fallback_cause="malformed_response")
     return ClientOutcome("daemon", response=response)

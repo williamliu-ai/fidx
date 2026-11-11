@@ -198,6 +198,13 @@ If `results` is empty:
 - no raw candidates means try broader terms, `--mode lexical` for exact tokens
   or `--mode vector` for conceptual wording
 
+Hybrid search defaults to RRF. Experimental `--fusion weighted:W_LEX,W_VEC`
+normalizes two finite nonnegative weights to sum to one; at least one must be
+positive. It min-max normalizes each source score list (equal scores become
+1), treats missing sources as zero, and breaks ties by RRF order. It cannot
+be combined with lexical/vector mode or `--truncate calibrated`; explicit
+numeric truncation thresholds still apply to the weighted score scale.
+
 ## Choosing `--truncate`
 
 Default search is recall-first:
