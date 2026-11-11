@@ -13,6 +13,8 @@ All notable changes to fidx are documented here. The format follows
   as 0.8 for the built-in models; existing indexes stay compatible.
 
 ### Fixed
+- Turn off ONNX Runtime telemetry by default, preventing device identifiers and
+  queued telemetry events from being saved unless you explicitly enable it.
 - Guidance and explain searches on indexes created by fidx 0.1 now use the
   cold path instead of failing when a daemon is running.
 
