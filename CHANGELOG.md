@@ -6,6 +6,11 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- fastembed 0.9 is now allowed (`fastembed>=0.6,<0.10`, and `>=0.8,<0.10` for
+  the `rerank` extra). It produces the same vectors as 0.8 for the built-in
+  profiles; existing indexes stay compatible.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added
@@ -34,6 +39,21 @@ All notable changes to fidx are documented here. The format follows
   `index --rerank-prefetch[=MODEL]`, plus soft doctor capability/cache checks.
   Search advice retains the effective rerank setting, including an explicit
   off override of `FIDX_RERANK`.
+- Opt-in search guidance: `search --guidance --json` adds confidence reasons,
+  term coverage, a count relation and ranked causes for empty results;
+  `--explain` adds raw query-quality signals in `diagnostics.qpp`. Neither
+  changes ranking.
+- `search --budget-tokens N` (with `--json`) trims optional fields and then
+  trailing results to fit an estimated token budget, reported in
+  `summary.budget`.
+- Search results include the matched chunk's line range under `locations`.
+- After a successful `fidx index`, search summaries include the index age and
+  a sampled `stale_hint` under `summary.index`.
+- `fidx get --json` returns a versioned `fidx.get.v1` document with a 64 KiB
+  default body cap (`--max-bytes`) and a truncation marker.
+- `fidx collection add --exclude-glob` skips matching files.
+- A desktop Obsidian plugin in `obsidian-plugin/` registers a vault as a
+  collection, runs indexing and searches notes from Obsidian.
 
 ### Changed
 - **Breaking:** `doctor --json` now wraps its diagnostic checks in a
@@ -56,6 +76,14 @@ All notable changes to fidx are documented here. The format follows
   3 GB with the default profile, at the same or better throughput. Stored
   vectors shift slightly (batch padding affects the quantized model's output);
   existing indexes stay compatible.
+- Search ordering is deterministic: tied candidates break ties by a stable
+  key, so repeated searches return the same order.
+- `fidx index` holds a per-index lock (`INDEX.db.lock`); a second concurrent
+  `fidx index` on the same index exits 4 (`db_locked`) and names the holder's
+  PID.
+- The warm daemon handles concurrent searches on isolated read connections.
+- Re-running `fidx index` resumes documents whose embedding was interrupted
+  instead of leaving them without vectors.
 
 ## [0.1.2] - 2026-07-07
 
