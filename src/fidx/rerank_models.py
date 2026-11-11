@@ -27,7 +27,7 @@ RERANK_MODELS = (
 )
 DEFAULT_RERANK_MODEL = RERANK_MODELS[0]
 _BY_CASEFOLD = {model.casefold(): model for model in RERANK_MODELS}
-_FASTEMBED_VERSION = re.compile(r"0\.8\.\d+(?:\+[A-Za-z0-9.]+)?\Z")
+_FASTEMBED_VERSION = re.compile(r"0\.(?:8|9)\.\d+(?:\+[A-Za-z0-9.]+)?\Z")
 _TOKENIZER_FILES = ("config.json", "tokenizer.json", "tokenizer_config.json",
                     "special_tokens_map.json")
 
@@ -70,7 +70,7 @@ def probe_rerank_capability() -> type[Any]:
         raise RerankCapabilityError("FastEmbed is unavailable") from exc
     if not _FASTEMBED_VERSION.fullmatch(version):
         raise RerankCapabilityError(
-            f"FastEmbed {version} lacks the supported 0.8 cross-encoder line")
+            f"FastEmbed {version} lacks the supported 0.8 or 0.9 cross-encoder line")
     try:
         module = importlib.import_module("fastembed.rerank.cross_encoder")
         cross_encoder = module.TextCrossEncoder

@@ -40,7 +40,9 @@ def test_provisional_default_and_exact_four_model_allowlist():
             rerank_models.canonical_model(invalid)
 
 
-def test_capability_probe_imports_class_without_constructing_or_downloading(monkeypatch):
+@pytest.mark.parametrize("version", ["0.8.0", "0.9.1", "0.9.1+local"])
+def test_capability_probe_imports_class_without_constructing_or_downloading(
+        monkeypatch, version):
     calls = []
 
     class FakeCrossEncoder:
@@ -51,7 +53,7 @@ def test_capability_probe_imports_class_without_constructing_or_downloading(monk
             return []
 
     monkeypatch.setattr(rerank_models.metadata, "version",
-                        lambda package: calls.append(("version", package)) or "0.8.0")
+                        lambda package: calls.append(("version", package)) or version)
     monkeypatch.setattr(rerank_models.importlib, "import_module",
                         lambda module: calls.append(("import", module)) or
                         SimpleNamespace(TextCrossEncoder=FakeCrossEncoder))
@@ -61,7 +63,7 @@ def test_capability_probe_imports_class_without_constructing_or_downloading(monk
 
 
 @pytest.mark.parametrize("version", ["0.6.9", "0.7.9", "0.8.0rc1",
-                                            "0.9.0", "broken"])
+                                            "0.9.0rc1", "0.10.0", "broken"])
 def test_capability_probe_rejects_unsupported_fastembed_without_import(
         monkeypatch, version):
     monkeypatch.setattr(rerank_models.metadata, "version", lambda _: version)
@@ -118,13 +120,13 @@ def test_typed_offline_model_and_capability_errors_have_distinct_envelopes():
 def test_rerank_extra_raises_fastembed_floor_without_changing_core():
     root = Path(__file__).resolve().parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    assert "fastembed>=0.6,<0.9" in project["project"]["dependencies"]
+    assert "fastembed>=0.6,<0.10" in project["project"]["dependencies"]
     assert project["project"]["optional-dependencies"]["rerank"] == [
-        "fastembed>=0.8,<0.9"]
+        "fastembed>=0.8,<0.10"]
     locked = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
     package = next(row for row in locked["package"] if row["name"] == "fmdidx")
     assert {"name": "fastembed"} in package["optional-dependencies"]["rerank"]
     assert any(row["name"] == "fastembed"
                and row.get("marker") == "extra == 'rerank'"
-               and row["specifier"] == ">=0.8,<0.9"
+               and row["specifier"] == ">=0.8,<0.10"
                for row in package["metadata"]["requires-dist"])
