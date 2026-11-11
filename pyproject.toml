@@ -34,7 +34,7 @@ classifiers = [
 dependencies = [
     "click>=8.1,<9",
     "numpy>=1.26,<3",
-    "fastembed>=0.6,<0.9",
+    "fastembed>=0.6,<0.10",
     "sqlite-vec>=0.1.6,<0.2",
     "onnxruntime>=1.17,<2",
 ]
@@ -56,7 +56,7 @@ duckdb = [
     "duckdb>=1.1,<2",
 ]
 rerank = [
-    "fastembed>=0.8,<0.9",
+    "fastembed>=0.8,<0.10",
 ]
 dev = [
     "pytest>=8.0,<10",
