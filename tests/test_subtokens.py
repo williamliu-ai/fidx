@@ -110,13 +110,21 @@ def test_update_delete(conn, identifiers):
     enable(conn)
     store = vector_store.NullStore()
     fresh = identifiers / 'new.txt'
-    fresh.write_text('uniqueIdentifier42')
+
+    def write(text, step):
+        # Change detection is mtime-based; coarse filesystem clocks (Windows)
+        # can give back-to-back writes the same mtime, so set distinct ones.
+        fresh.write_text(text)
+        stamp = 1_700_000_000 + step
+        os.utime(fresh, (stamp, stamp))
+
+    write('uniqueIdentifier42', 1)
     indexer.sync_collection(conn, store, 'code', indexer.IndexStats())
     assert paths(conn, 'unique identifier 42') == {'new.txt'}
-    fresh.write_text('replacement text with different length')
+    write('replacement text with different length', 2)
     indexer.sync_collection(conn, store, 'code', indexer.IndexStats())
     assert not paths(conn, 'unique identifier 42')
-    fresh.write_text('deleteIdentifier99')
+    write('deleteIdentifier99', 3)
     indexer.sync_collection(conn, store, 'code', indexer.IndexStats())
     assert paths(conn, 'delete identifier 99') == {'new.txt'}
     fresh.unlink()
