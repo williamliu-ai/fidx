@@ -113,6 +113,7 @@ fidx collection add ~/mail/export --name emails --glob "**/*.txt"
 # Scan + chunk + embed (incremental; first run downloads the ONNX model)
 fidx index
 fidx index --json  # one versioned result; progress and warnings go to stderr
+fidx index --subtokens  # experimental identifier matching; off by default
 
 # Optional: acquire a model before searching an existing index on a new machine
 fidx models fetch embed
@@ -186,6 +187,12 @@ sigmoid-normalized value used for ranking and `--min-score`, while
 fused-score floor does not transfer to that scale: `--truncate calibrated`
 uses its knee step after a successful rerank. A runtime scorer failure returns
 the original retrieval order and a diagnostic warning.
+
+`fidx index --subtokens/--no-subtokens` controls experimental identifier
+subtokens for lexical search (off by default). Enabling rebuilds a derived
+table from stored document text, so the index grows. Omitting the option keeps
+the current setting. Re-run `fidx index --subtokens` to rebuild after a stale
+subtoken warning; searches use the main lexical table until repaired.
 
 For scripts, `fidx index --json` emits one `fidx.index.v1` object with document
 and embedding counts, elapsed seconds, `calibration` (`applied`, `skipped`, or

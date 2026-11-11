@@ -7,6 +7,11 @@ All notable changes to fidx are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Experimental `fidx index --subtokens/--no-subtokens` for identifier-aware
+  lexical matching across camel case, acronyms, underscores and digits. Off
+  by default; enabling rebuilds a derived table and grows the index. The
+  current setting persists when omitted; stale derived data falls back to
+  the main lexical table with a rebuild warning.
 - Experimental hybrid `--fusion weighted:W_LEX,W_VEC` with normalized weights
   and min-max source scores. RRF stays the default. Weighted fusion rejects
   `--truncate calibrated` because the stored floor uses the RRF score scale.

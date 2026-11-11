@@ -19,7 +19,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from math import isfinite
 
-from .db import has_chunk_line_columns
+from .db import has_chunk_line_columns, read_snapshot, subtokens_ready
+from .subtokens import TOKEN_RE as _TOKEN_RE, expand_query, subtoken_match_expr
 from .embedder import Embedder
 
 RRF_K = 60
@@ -33,6 +34,7 @@ VECTOR_WEIGHT = 1.0
 TOP_RANK_BONUS = {0: 0.05, 1: 0.02, 2: 0.02}
 CANDIDATES_PER_SOURCE = 50
 SNIPPET_TOKENS = 16
+SUBTOKEN_WEIGHT = 0.5
 
 
 @dataclass
@@ -60,9 +62,6 @@ class SearchTrace:
     vector: tuple[Result, ...] = ()
     fused_pool: tuple[Result, ...] = ()
     count_relation: str = "gte"
-
-
-_TOKEN_RE = re.compile(r"[\w']+", re.UNICODE)
 
 
 def fts_match_expr(query: str, conjunctive: bool = False) -> str | None:
@@ -119,32 +118,84 @@ def _fts_query(conn: sqlite3.Connection, expr: str, collections: list[str] | Non
     return results
 
 
+def _sub_fts_query(conn: sqlite3.Connection, expr: str, collections: list[str] | None,
+                   limit: int, tier: str) -> list[Result]:
+    clause, params = _collection_clause(collections)
+    rows = conn.execute(
+        f"""
+        SELECT d.id, d.collection, d.relpath, d.title, d.hash,
+               bm25(documents_sub_fts) AS rank
+        FROM documents_sub_fts JOIN documents d ON d.id = documents_sub_fts.rowid
+        WHERE documents_sub_fts MATCH ? AND d.active = 1{clause}
+        ORDER BY rank, d.collection, d.relpath LIMIT ?
+        """, [expr, *params, limit],
+    ).fetchall()
+    results = []
+    for row in rows:
+        raw = -row["rank"] * SUBTOKEN_WEIGHT
+        results.append(Result(
+            row["id"], row["collection"], row["relpath"], row["title"], row["hash"][:6],
+            raw / (1 + raw) if raw > 0 else 0.0, tier=tier))
+    return results
+
+
+def _lexical_tier(conn, expr, sub_expr, collections, limit, tier):
+    main = _fts_query(conn, expr, collections, limit, tier)
+    if sub_expr is None:
+        return main
+    candidates = {r.doc_id: r for r in main}
+    for sub in _sub_fts_query(conn, sub_expr, collections, limit, tier):
+        if sub.doc_id in candidates:
+            result = candidates[sub.doc_id]
+            # Mapping raw/(1+raw) is monotone, so max commutes with it.
+            result.score = max(result.score, sub.score)
+        else:
+            # Only original body snippets escape this module. An expanded
+            # MATCH by rowid is cheap; a camel-only body may have no match.
+            row = conn.execute(
+                f"SELECT snippet(documents_fts, 1, '', '', '…', {SNIPPET_TOKENS}) "
+                "FROM documents_fts WHERE rowid = ? AND documents_fts MATCH ?",
+                (sub.doc_id, sub_expr)).fetchone()
+            sub.snippet = row[0] if row else ""
+            candidates[sub.doc_id] = sub
+    return sorted(candidates.values(), key=lambda r: (-r.score, r.collection, r.relpath))
+
+
 def search_lexical(conn: sqlite3.Connection, query: str, collections: list[str] | None = None,
                    limit: int = CANDIDATES_PER_SOURCE) -> list[Result]:
-    """Tiered BM25: exact phrase (terms adjacent, in order) ranks first, then
-    documents matching ALL terms, then OR-matched documents fill (recall)."""
+    """Union main and optional subtoken evidence within phrase → AND → OR tiers."""
+    with read_snapshot(conn):
+        return _search_lexical(conn, query, collections, limit)
+
+
+def _search_lexical(conn: sqlite3.Connection, query: str, collections: list[str] | None,
+                    limit: int) -> list[Result]:
     and_expr = fts_match_expr(query, conjunctive=True)
     if and_expr is None:
         return []
-
+    enabled = subtokens_ready(conn)
+    sub_and = subtoken_match_expr(query, True) if enabled else None
     results: list[Result] = []
     seen: set[int] = set()
 
-    def take(expr: str, tier: str) -> None:
-        for r in _fts_query(conn, expr, collections, limit, tier=tier):
+    def take(expr: str, sub_expr: str | None, tier: str) -> None:
+        for r in _lexical_tier(conn, expr, sub_expr, collections, limit, tier):
             if r.doc_id not in seen and len(results) < limit:
                 seen.add(r.doc_id)
                 results.append(r)
 
     tokens = _TOKEN_RE.findall(query)
     if len(tokens) > 1 and '"' not in query:
-        take('"' + " ".join(tokens) + '"', tier="phrase")
+        sub_tokens = _TOKEN_RE.findall(expand_query(query)) if enabled else []
+        take('"' + " ".join(tokens) + '"',
+             '"' + " ".join(sub_tokens) + '"' if sub_tokens else None, "phrase")
     if len(results) < limit:
-        take(and_expr, tier="and")
+        take(and_expr, sub_and, "and")
     if len(results) < limit:
         or_expr = fts_match_expr(query)
-        if or_expr != and_expr:
-            take(or_expr, tier="or")
+        sub_or = subtoken_match_expr(query) if enabled else None
+        if or_expr != and_expr or sub_or != sub_and:
+            take(or_expr, sub_or, "or")
     return results
 
 

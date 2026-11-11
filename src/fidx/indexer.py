@@ -25,7 +25,8 @@ from pathlib import Path
 
 from .chunker import chunk_text, extract_title
 from .config import DEFAULT_GLOBS
-from .db import has_chunk_line_columns
+from .db import begin_document_write, has_chunk_line_columns, subtokens_ready, subtokens_table_exists
+from .subtokens import subtoken_text
 from .embedder import Embedder
 
 EMBED_BATCH_CHUNKS = 256
@@ -123,19 +124,30 @@ def add_collection(
 
 
 def remove_collection(conn: sqlite3.Connection, store, name: str) -> None:
+    with conn:
+        begin_document_write(conn)
+        _remove_collection(conn, store, name)
+
+
+def _remove_collection(conn: sqlite3.Connection, store, name: str) -> None:
+    clean_subtokens = subtokens_ready(conn)
     doc_ids = [r["id"] for r in conn.execute("SELECT id FROM documents WHERE collection = ?", (name,))]
     _delete_documents(conn, store, doc_ids)
     conn.execute("DELETE FROM collections WHERE name = ?", (name,))
-    conn.commit()
+    if clean_subtokens:
+        conn.execute("DELETE FROM meta WHERE key = 'subtokens_dirty'")
 
 
 def _delete_documents(conn: sqlite3.Connection, store, doc_ids: list[int]) -> None:
+    have_subtokens = subtokens_table_exists(conn)
     for doc_id in doc_ids:
         chunk_ids = [
             r["id"] for r in conn.execute("SELECT id FROM chunks WHERE doc_id = ?", (doc_id,))
         ]
         store.delete(chunk_ids)
         conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+        if have_subtokens:
+            conn.execute("DELETE FROM documents_sub_fts WHERE rowid = ?", (doc_id,))
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
 
@@ -181,13 +193,21 @@ def _scan_files(root: Path, globs: list[str], exclude_globs: list[str] | None = 
 
 
 def sync_collection(conn: sqlite3.Connection, store, name: str, stats: IndexStats) -> None:
-    """Sync documents table (and FTS, via triggers) with the filesystem."""
+    """Sync documents and both lexical tables in the same write transaction."""
+    with conn:
+        begin_document_write(conn)
+        _sync_collection(conn, store, name, stats)
+
+
+def _sync_collection(conn: sqlite3.Connection, store, name: str, stats: IndexStats) -> None:
     row = conn.execute("SELECT root, globs FROM collections WHERE name = ?", (name,)).fetchone()
     if row is None:
         raise KeyError(f"unknown collection {name!r}")
     root = Path(row["root"])
     globs = _decode_collection_globs(json.loads(row["globs"]))
 
+    clean_subtokens = subtokens_ready(conn)
+    have_subtokens = subtokens_table_exists(conn)
     on_disk = _scan_files(root, globs.include, globs.exclude)
     in_db = {
         r["relpath"]: r
@@ -214,23 +234,30 @@ def sync_collection(conn: sqlite3.Connection, store, name: str, stats: IndexStat
         digest = hashlib.sha256(body.encode()).hexdigest()
         title = extract_title(body, fallback=path.stem)
         if existing is None:
-            conn.execute(
+            inserted = conn.execute(
                 "INSERT INTO documents(collection, relpath, title, body, hash, mtime) VALUES (?, ?, ?, ?, ?, ?)",
                 (name, rel, title, body, digest, mtime),
             )
+            if have_subtokens:
+                conn.execute("INSERT OR REPLACE INTO documents_sub_fts(rowid, body_sub) VALUES (?, ?)",
+                             (inserted.lastrowid, subtoken_text(body)))
             stats.added += 1
         elif existing["hash"] != digest:
             _delete_documents(conn, store, [existing["id"]])
-            conn.execute(
+            inserted = conn.execute(
                 "INSERT INTO documents(collection, relpath, title, body, hash, mtime) VALUES (?, ?, ?, ?, ?, ?)",
                 (name, rel, title, body, digest, mtime),
             )
+            if have_subtokens:
+                conn.execute("INSERT OR REPLACE INTO documents_sub_fts(rowid, body_sub) VALUES (?, ?)",
+                             (inserted.lastrowid, subtoken_text(body)))
             stats.updated += 1
         else:
             conn.execute("UPDATE documents SET mtime = ? WHERE id = ?", (mtime, existing["id"]))
             stats.unchanged += 1
     _backfill_chunk_lines(conn, name)
-    conn.commit()
+    if clean_subtokens:
+        conn.execute("DELETE FROM meta WHERE key = 'subtokens_dirty'")
 
 
 def embed_pending(conn: sqlite3.Connection, store, embedder: Embedder, stats: IndexStats,

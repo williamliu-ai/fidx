@@ -321,6 +321,9 @@ class IndexCommand(click.Command):
 @click.option("--recalibrate-after", type=float, default=0.1, show_default=True,
               help="Recalibrate once changed docs since last calibration reach this "
                    "fraction of the corpus (min 100 docs).")
+@click.option("--subtokens/--no-subtokens", default=None,
+              help="Experimental identifier subtokens (off by default; absent keeps current state). "
+                   "Enabling rebuilds a derived table and grows the index.")
 @click.option("--rerank-prefetch", default=None,
               flag_value=rerank_models.DEFAULT_RERANK_MODEL, is_flag=False,
               help="Explicitly fetch an allowlisted reranker while indexing (optional =MODEL).")
@@ -329,7 +332,7 @@ class IndexCommand(click.Command):
 def index(ctx: click.Context, only: str | None, profile: str | None, threads: int | None,
           parallel: int | None, backend: str | None, do_calibrate: bool,
           recalibrate_after: float, rerank_prefetch: str | None,
-          as_json: bool) -> None:
+          as_json: bool, subtokens: bool | None) -> None:
     """Scan collections and (re)build chunks + embeddings incrementally."""
     if rerank_prefetch is not None:
         try:
@@ -339,13 +342,14 @@ def index(ctx: click.Context, only: str | None, profile: str | None, threads: in
     db_path = ctx.obj["db_path"]
     with index_lock(db_path):
         _index_unlocked(ctx, only, profile, threads, parallel, backend,
-                        do_calibrate, recalibrate_after, rerank_prefetch, as_json)
+                        do_calibrate, recalibrate_after, rerank_prefetch, as_json, subtokens)
 
 
 def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                     threads: int | None, parallel: int | None, backend: str | None,
                     do_calibrate: bool, recalibrate_after: float,
-                    rerank_prefetch: str | None, as_json: bool) -> None:
+                    rerank_prefetch: str | None, as_json: bool,
+                    subtokens: bool | None = None) -> None:
     db_path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, profile)
     db.ensure_instance_id(conn)
@@ -361,6 +365,8 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                           prof.model, prof.name)
     except RuntimeError as exc:
         raise click.ClickException(str(exc))
+    if subtokens is not None:
+        db.configure_subtokens(conn, subtokens)
     for name in names:
         indexer.sync_collection(conn, store, name, stats)
     indexer.embed_pending(conn, store, FastEmbedder(prof, threads=threads, parallel=parallel),
@@ -815,6 +821,7 @@ def status(ctx: click.Context, as_json: bool) -> None:
         click.echo(json.dumps({
             "schema": "fidx.status.v1", "db_path": str(db_path),
             "profile": prof.name, "backend": store.name,
+            "subtokens": db.get_meta(conn, "subtokens") == "1",
             "collections": collections, "documents": docs, "chunks": chunks,
             "embedded_chunks": vecs,
         }, ensure_ascii=False))
@@ -825,6 +832,7 @@ def status(ctx: click.Context, as_json: bool) -> None:
         size_mb += sidecar.stat().st_size / 1e6
     click.echo(f"db: {db_path} ({size_mb:.1f} MB)")
     click.echo(f"profile: {prof.name} ({prof.model}, {prof.dim}d)  backend: {store.name}")
+    click.echo(f"subtokens: {db.get_meta(conn, 'subtokens') == '1'}")
     click.echo(f"documents: {docs}  chunks: {chunks}  vectors: {vecs}")
     response = daemon.client_request(db_path, {"cmd": "ping"})
     daemon_state = ("running" if response and response.get("ok") and

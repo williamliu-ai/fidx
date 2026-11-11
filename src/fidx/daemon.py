@@ -601,6 +601,15 @@ def run_search(conn, store, embedder, req: dict,
                *, trace: searchmod.SearchTrace | None = None,
                reranker: rerankmod.Reranker | None = None,
                rerank_n: int = 20) -> dict:
+    with db.read_snapshot(conn):
+        return _run_search(conn, store, embedder, req, trace=trace,
+                           reranker=reranker, rerank_n=rerank_n)
+
+
+def _run_search(conn, store, embedder, req: dict,
+                *, trace: searchmod.SearchTrace | None = None,
+                reranker: rerankmod.Reranker | None = None,
+                rerank_n: int = 20) -> dict:
     query = req["query"]
     mode = req.get("mode", "hybrid")
     fusion = searchmod.parse_fusion(req.get("fusion", "rrf"))
@@ -711,6 +720,11 @@ def run_search(conn, store, embedder, req: dict,
           envelope["diagnostics"]["calibration"]["floor_available"]):
         envelope["diagnostics"]["warnings"] = [
             {"component": "rerank", "code": "fused_calibration_ignored", "fallback": "knee"}]
+    if (get_meta(conn, "subtokens") == "1" and not db.subtokens_ready(conn)):
+        envelope["diagnostics"].setdefault("warnings", []).append({
+            "component": "subtokens", "code": "derived_index_stale", "fallback": "main_fts",
+            "message": "Identifier subtokens are stale or missing; run fidx index --subtokens to rebuild.",
+        })
     requested = req.get("budget_tokens")
     return budget.apply_budget(envelope, requested) if requested is not None else envelope
 
