@@ -6,6 +6,11 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-11
+
+0.2.0 was not published to PyPI; 0.2.1 is the first PyPI release of the 0.2
+line and includes every change listed under 0.2.0 below.
+
 ### Added
 - Experimental `fidx index --subtokens/--no-subtokens` for identifier-aware
   lexical matching across camel case, acronyms, underscores and digits. Off
