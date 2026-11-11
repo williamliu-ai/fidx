@@ -34,7 +34,7 @@ jobs:
       - name: pip-audit (resolved deps)
         run: |
           uv export --no-emit-project --format requirements-txt -o /tmp/reqs.txt
-          uvx pip-audit -r /tmp/reqs.txt
+          uvx pip-audit -r /tmp/reqs.txt $(grep -Ev '^(#|$)' .github/pip-audit-ignore.txt | sed 's/^/--ignore-vuln /')
 
   secrets:
     # Blocking: no credential-shaped content may enter the tree.

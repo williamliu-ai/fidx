@@ -6,6 +6,8 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-10
+
 ### Added
 - Optional MCP server for agent hosts. Install `fmdidx[mcp]` and have the host
   launch `fidx --db PATH mcp`. It serves three read-only tools over stdio:
