@@ -247,9 +247,9 @@ def test_base_json_fingerprint(indexed, mode):
     # Captured from the public base before implementing fusion; fixture omits
     # only the volatile index freshness summary, for portable byte comparison.
     expected = {
-        "hybrid": "242ebc0471f3c28a4f60cbb5a5eda9493c313eba847e6debb003322e0adb8623",
-        "lexical": "39dd6dd53e161d436f871f5272282193e6c03afa14dfe8ead250039333d2615c",
-        "vector": "984a8370c1c4c4f66cd4cc51b1ba279df037eb4b139ae5d6d6a6099a9f2f191e",
+        "hybrid": "242ebc0471f3c28a4f60cbb5a5eda9493c313eba847e6debb003322e0adb8623",  # pragma: allowlist secret
+        "lexical": "39dd6dd53e161d436f871f5272282193e6c03afa14dfe8ead250039333d2615c",  # pragma: allowlist secret
+        "vector": "984a8370c1c4c4f66cd4cc51b1ba279df037eb4b139ae5d6d6a6099a9f2f191e",  # pragma: allowlist secret
     }
     assert hashlib.sha256(ordinary.output.encode()).hexdigest() == expected[mode]
 
