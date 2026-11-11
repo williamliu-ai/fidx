@@ -7,6 +7,16 @@ All notable changes to fidx are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Optional MCP server for agent hosts. Install `fmdidx[mcp]` and have the host
+  launch `fidx --db PATH mcp`. It serves three read-only tools over stdio:
+  `fidx_search`, `fidx_get` (body capped at 64 KiB) and `fidx_collections`.
+  Each tool runs the CLI and returns its JSON envelope unchanged; CLI errors
+  set the MCP tool error flag. The server opens no network port, and the base
+  install is unchanged.
+- `fidx collection list --json` returns a `fidx.collections.v1` object with
+  each collection's root, globs and document count.
+- A Claude Code skill under `integrations/claude-code-skill/` for searching an
+  existing index and reading cited files before answering.
 - `index --json` and `status --json` return versioned `fidx.index.v1` and
   `fidx.status.v1` objects. Index progress and warnings go to stderr; warnings
   are also included in the successful JSON result.

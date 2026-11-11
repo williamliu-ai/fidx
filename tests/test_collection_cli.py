@@ -6,8 +6,9 @@
 # AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
 from click.testing import CliRunner
+import json
 
-from fidx import cli
+from fidx import cli, db
 
 
 def test_collection_add_passes_exclude_globs(monkeypatch, tmp_path):
@@ -50,3 +51,44 @@ def test_collection_add_passes_exclude_globs(monkeypatch, tmp_path):
     assert captured["root"] == root
     assert captured["globs"] == ["**/*.md"]
     assert captured["exclude_globs"] == [".obsidian/**"]
+
+
+def test_collection_json_preserves_human_output_and_counts_all_documents(tmp_path):
+    path = tmp_path / "index.db"
+    conn = db.connect(path)
+    db.init_schema(conn)
+    for name in ("zeta", "alpha"):
+        conn.execute("INSERT INTO collections(name, root, globs) VALUES (?, ?, ?)",
+                     (name, str(tmp_path / name), '["**/*.md"]'))
+    conn.execute("INSERT INTO documents(collection, relpath, body, hash, active) "
+                 "VALUES ('alpha', 'é.md', '東京', 'abcdef', 0)")
+    conn.commit()
+    conn.close()
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["--db", str(path), "collection", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    expected = {"schema": "fidx.collections.v1", "collections": [
+        {"name": name, "root": str(tmp_path / name), "globs": ["**/*.md"],
+         "doc_count": int(name == "alpha")} for name in ("alpha", "zeta")]}
+    assert json.loads(result.stdout) == expected
+    root_json = runner.invoke(cli.main, ["--db", str(path), "--json", "collection", "list"])
+    assert json.loads(root_json.stdout) == expected
+    human = runner.invoke(cli.main, ["--db", str(path), "collection", "list"])
+    assert human.stdout == "".join(
+        f"{row['name']}\t{row['root']}\t{row['doc_count']} docs\t['**/*.md']\n"
+        for row in expected["collections"])
+
+
+def test_collection_json_empty_and_missing_index(tmp_path):
+    path = tmp_path / "index.db"
+    conn = db.connect(path)
+    db.init_schema(conn)
+    conn.close()
+    args = ["--db", str(path), "collection", "list", "--json"]
+    assert json.loads(CliRunner().invoke(cli.main, args).stdout) == {
+        "schema": "fidx.collections.v1", "collections": []}
+    path.unlink()
+    result = CliRunner().invoke(cli.main, args)
+    assert result.exit_code == 3
+    assert json.loads(result.stdout)["schema"] == "fidx.error.v1"
+    assert not path.exists()
