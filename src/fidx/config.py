@@ -89,6 +89,14 @@ PROFILES: dict[str, EmbedProfile] = {
         dim=384,
         query_prefix="Represent this sentence for searching relevant passages: ",
     ),
+    # Experimental source-code profile. FastEmbed's pooled_normalized_embedding
+    # catalogue documents no query/document prefixes; the model card uses none:
+    # https://huggingface.co/jinaai/jina-embeddings-v2-base-code
+    "jina-code-768": EmbedProfile(
+        name="jina-code-768",
+        model="jinaai/jina-embeddings-v2-base-code",
+        dim=768,
+    ),
 }
 
 DEFAULT_PROFILE = os.environ.get("FIDX_PROFILE", "nomic-768-q")
