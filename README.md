@@ -142,8 +142,10 @@ fidx get "#a1b2c3" --json  # versioned result, 64 KiB UTF-8 body cap
 For source-code collections, experimental `jina-code-768` uses
 `jinaai/jina-embeddings-v2-base-code` (768 dimensions). Select it with
 `fidx index --profile jina-code-768` or `FIDX_PROFILE=jina-code-768`;
-`nomic-768-q` remains the default. Switching profiles requires re-embedding
-into a fresh database (`--db`). To acquire the code model before offline
+`nomic-768-q` remains the default. The code profile is tuned for source
+code: retrieval over prose and chat logs is noticeably worse with it, so keep
+notes and chats in a separate database on the default profile. Switching
+profiles requires re-embedding into a fresh database (`--db`). To acquire the code model before offline
 search, run `fidx models fetch embed --profile jina-code-768` while online.
 
 ## Obsidian plugin
