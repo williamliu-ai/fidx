@@ -6,6 +6,12 @@ All notable changes to fidx are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Experimental opt-in `jina-code-768` embedding profile for source-code
+  collections, using `jinaai/jina-embeddings-v2-base-code` (768 dimensions).
+  The default stays `nomic-768-q`; switching requires re-embedding into a
+  fresh database.
+
 ## [0.2.1] - 2026-11-11
 
 0.2.0 was not published to PyPI; 0.2.1 is the first PyPI release of the 0.2
