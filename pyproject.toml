@@ -50,7 +50,7 @@ fidx = "fidx.cli:main"
 
 [project.optional-dependencies]
 mcp = [
-    "mcp>=1.30,<2",
+    "mcp>=1.30,<3",
 ]
 duckdb = [
     "duckdb>=1.1,<2",
