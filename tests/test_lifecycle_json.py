@@ -150,11 +150,13 @@ def test_status_json_empty_and_populated_collections(tmp_path):
     empty = _invoke(path, "status", "--json")
     payload = _single_json(empty)
     assert set(payload) == {"schema", "db_path", "profile", "backend", "collections",
-                            "documents", "chunks", "embedded_chunks", "subtokens"}
+                            "documents", "chunks", "embedded_chunks", "subtokens",
+                            "daemon_vector_backend"}
     assert payload["schema"] == "fidx.status.v1"
     assert payload["db_path"] == str(path)
     assert isinstance(payload["profile"], str) and payload["profile"]
     assert payload["backend"] == "none"
+    assert payload["daemon_vector_backend"] is None
     assert payload["subtokens"] is False
     assert payload["collections"] == [
         {"name": name, "root": str(tmp_path / name), "documents": 0}
