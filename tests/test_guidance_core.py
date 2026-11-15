@@ -82,7 +82,7 @@ def test_reused_trace_does_not_leak_a_previous_query(conn, store, embedder, corp
     assert not trace.lexical and not trace.vector and not trace.fused_pool
 
 
-def test_trace_keeps_capped_fetch_union_tie_order_and_one_vector_query(monkeypatch):
+def test_trace_keeps_capped_fetch_union_tie_order_and_one_vector_query(conn, monkeypatch):
     calls = []
     lexical = [_result(i, 1.0) for i in range(1, 51)]
     vector = [_result(i, 1.0) for i in range(26, 76)]
@@ -98,7 +98,7 @@ def test_trace_keeps_capped_fetch_union_tie_order_and_one_vector_query(monkeypat
     monkeypatch.setattr(search, "search_lexical", fake_lexical)
     monkeypatch.setattr(search, "search_vector", fake_vector)
     trace = SearchTrace()
-    observed = search.search_hybrid(None, None, None, "query", limit=10, trace=trace)
+    observed = search.search_hybrid(conn, None, None, "query", limit=10, trace=trace)
     assert calls == ["lexical", "vector"]
     assert len(trace.lexical) == len(trace.vector) == 50
     assert len(trace.fused_pool) == 75
@@ -110,11 +110,11 @@ def test_trace_keeps_capped_fetch_union_tie_order_and_one_vector_query(monkeypat
              ("vector", search.VECTOR_WEIGHT, vector)], 10)]
 
 
-def test_trace_tied_fused_scores_keep_path_order(monkeypatch):
+def test_trace_tied_fused_scores_keep_path_order(conn, monkeypatch):
     monkeypatch.setattr(search, "search_lexical", lambda *args: [_result(2, 1.0)])
     monkeypatch.setattr(search, "search_vector", lambda *args: [_result(1, 1.0)])
     trace = SearchTrace()
-    observed = search.search_hybrid(None, None, None, "query", limit=1, trace=trace)
+    observed = search.search_hybrid(conn, None, None, "query", limit=1, trace=trace)
     assert [r.relpath for r in trace.fused_pool] == ["1.md", "2.md"]
     assert [r.relpath for r in observed] == ["1.md"]
 

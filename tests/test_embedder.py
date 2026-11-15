@@ -174,7 +174,7 @@ def test_embed_queries_uses_embed_batch_size(monkeypatch):
         def embed(self, *args, **kwargs):
             return self.model.embed(*args, **kwargs)
 
-    monkeypatch.setattr(embedder, "_ensure_model", lambda: Wrapper())
+    monkeypatch.setattr(embedder, "_ensure_model", lambda **kwargs: Wrapper())
     vectors = embedder.embed_queries(["query"] * 4)
     assert vectors.shape == (4, 2)
     assert seen == [(EMBED_BATCH_SIZE, None)]

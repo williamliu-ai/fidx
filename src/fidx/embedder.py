@@ -38,6 +38,27 @@ MAX_EMBED_TOKENS = 768
 EMBED_BATCH_SIZE = 16
 
 
+def _query_embedding_class(base):
+    """Set query inter-op before ONNX session creation, without global patches.
+
+    FastEmbed exposes the arena option but does not forward arbitrary ONNX
+    session options. Its backend hook applies options before loading a session.
+    """
+    class QuerySessionOptions:
+        @classmethod
+        def add_extra_session_options(cls, options, extra):
+            super().add_extra_session_options(options, extra)
+            options.inter_op_num_threads = 1
+
+    class QueryTextEmbedding(base):
+        EMBEDDINGS_REGISTRY = [
+            type(f"Query{backend.__name__}", (QuerySessionOptions, backend), {})
+            for backend in base.EMBEDDINGS_REGISTRY
+        ]
+
+    return QueryTextEmbedding
+
+
 def _cap_tokenizer(tokenizer) -> None:
     """Clamp the tokenizer's truncation to MAX_EMBED_TOKENS — never raising a
     model's own limit (a 512-position model must stay at 512)."""
@@ -85,11 +106,13 @@ class FastEmbedder:
         if threads is None and os.environ.get("FIDX_THREADS"):
             threads = int(os.environ["FIDX_THREADS"])
         self._threads = threads
+        self._query_threads = threads if threads is not None else min(8, os.cpu_count() or 1)
         # Data-parallel workers for bulk (indexing) embeds; 0 = all cores.
         # Queries always run in-process — worker spawn would dominate latency.
         self._parallel = parallel
         self._local_files_only = local_files_only
         self._model = None
+        self._query_model = None
 
     @staticmethod
     def cache_path() -> Path:
@@ -99,7 +122,7 @@ class FastEmbedder:
         xdg = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
         return Path(xdg).expanduser() / "fidx" / "models"
 
-    def _build_model(self, *, lazy_load: bool = False):
+    def _build_model(self, *, lazy_load: bool = False, query: bool = False):
         from fastembed import TextEmbedding
 
         if self.profile.hf_source:
@@ -116,10 +139,12 @@ class FastEmbedder:
                     model_file=self.profile.model_file or "onnx/model.onnx",
                 )
 
-        return TextEmbedding(
+        embedding_class = (_query_embedding_class(TextEmbedding)
+                           if query and self._threads is None else TextEmbedding)
+        return embedding_class(
             model_name=self.profile.model,
             cache_dir=str(self.cache_path()),
-            threads=self._threads,
+            threads=self._query_threads if query else self._threads,
             local_files_only=self._local_files_only,
             lazy_load=lazy_load,
             enable_cpu_mem_arena=False,
@@ -143,22 +168,26 @@ class FastEmbedder:
         except Exception:  # doctor must report broken dependencies, not crash
             return False
 
-    def _ensure_model(self):
-        if self._model is None:
+    def _ensure_model(self, *, query: bool = False):
+        # Explicit thread settings keep the shared session and old precedence.
+        slot = "_query_model" if query and self._threads is None else "_model"
+        model = getattr(self, slot)
+        if model is None:
             try:
-                self._model = self._build_model()
+                model = self._build_model(query=True) if slot == "_query_model" else self._build_model()
             except Exception as exc:
                 if self._local_files_only:
                     raise ModelUnavailableError(self.profile.name, self.profile.model) from exc
                 raise
-            tokenizer = getattr(self._model.model, "tokenizer", None)
+            tokenizer = getattr(model.model, "tokenizer", None)
             if tokenizer is not None:
                 _cap_tokenizer(tokenizer)
-        return self._model
+            setattr(self, slot, model)
+        return model
 
     def _embed(self, texts: Iterable[str], batch_size: int = EMBED_BATCH_SIZE,
-               parallel: int | None = None) -> np.ndarray:
-        model = self._ensure_model()
+               parallel: int | None = None, *, query: bool = False) -> np.ndarray:
+        model = self._ensure_model(query=True) if query else self._ensure_model()
         texts = list(texts)
         if parallel is not None:
             # Data-parallel workers rebuild the model — and its uncapped
@@ -184,7 +213,7 @@ class FastEmbedder:
                            parallel=parallel)
 
     def embed_queries(self, texts: Sequence[str]) -> np.ndarray:
-        return self._embed([self.profile.query_prefix + t for t in texts])
+        return self._embed([self.profile.query_prefix + t for t in texts], query=True)
 
 
 class HashEmbedder:

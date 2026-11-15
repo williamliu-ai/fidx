@@ -112,12 +112,12 @@ def test_cold_search_never_downloads(tmp_path, corpus_dir, monkeypatch):
     monkeypatch.setenv("FASTEMBED_CACHE_PATH", str(cache))
     calls = []
 
-    def missing_model(*, model_name, local_files_only, **kwargs):
+    def missing_model(self, *, model_name, local_files_only, **kwargs):
         calls.append((model_name, local_files_only))
         assert local_files_only, "search allowed model downloads"
         raise ValueError("model absent from cold cache")
 
-    monkeypatch.setattr("fastembed.TextEmbedding", missing_model)
+    monkeypatch.setattr("fastembed.TextEmbedding.__init__", missing_model)
     result = CliRunner().invoke(cli.main, [
         "--db", str(path), "search", "OAuth", "--json", "--no-daemon"])
     assert calls == [(MODEL, True)]

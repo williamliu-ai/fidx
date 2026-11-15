@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from math import isfinite
 
@@ -35,6 +36,48 @@ TOP_RANK_BONUS = {0: 0.05, 1: 0.02, 2: 0.02}
 CANDIDATES_PER_SOURCE = 50
 SNIPPET_TOKENS = 16
 SUBTOKEN_WEIGHT = 0.5
+
+# Only embedding runs off-thread; SQLite stays on the caller's thread.
+_QUERY_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fidx-query")
+
+
+class _PendingSnippet(str):
+    """Empty until selection; retain the exact MATCH expression for this tier."""
+
+    def __new__(cls, expr: str):
+        value = super().__new__(cls, "")
+        value.expr = expr
+        return value
+
+
+def _resolve_snippets(conn, results, lexical=None):
+    candidates = {r.doc_id: r for r in (lexical if lexical is not None else results)}
+    for result in results:
+        source = candidates.get(result.doc_id)
+        if source is None or not isinstance(source.snippet, _PendingSnippet):
+            continue
+        row = conn.execute(
+            f"SELECT snippet(documents_fts, 1, '', '', '…', {SNIPPET_TOKENS}) "
+            "FROM documents_fts WHERE rowid = ? AND documents_fts MATCH ?",
+            (result.doc_id, source.snippet.expr)).fetchone()
+        snippet = row[0] if row else ""
+        source.snippet = snippet
+        # Empty lexical snippets fall back to the vector chunk, as in fusion.
+        result.snippet = snippet or str(result.snippet)
+    return results
+
+
+class _QueryEmbedding:
+    def __init__(self, future):
+        self.future = future
+
+    def embed_queries(self, texts):
+        return self.future.result()
+
+
+def _embed_query(embedder, query):
+    # Call through wrappers so the daemon's existing embedder lock is honored.
+    return embedder.embed_queries([query])
 
 
 @dataclass
@@ -95,8 +138,7 @@ def _fts_query(conn: sqlite3.Connection, expr: str, collections: list[str] | Non
     rows = conn.execute(
         f"""
         SELECT d.id, d.collection, d.relpath, d.title, d.hash,
-               bm25(documents_fts, 4.0, 1.0, 2.0) AS rank,
-               snippet(documents_fts, 1, '', '', '…', {SNIPPET_TOKENS}) AS snip
+               bm25(documents_fts, 4.0, 1.0, 2.0) AS rank
         FROM documents_fts
         JOIN documents d ON d.id = documents_fts.rowid
         WHERE documents_fts MATCH ? AND d.active = 1{clause}
@@ -112,7 +154,7 @@ def _fts_query(conn: sqlite3.Connection, expr: str, collections: list[str] | Non
                 doc_id=r["id"], collection=r["collection"], relpath=r["relpath"],
                 title=r["title"], docid=r["hash"][:6],
                 score=raw / (1.0 + raw) if raw > 0 else 0.0,
-                snippet=r["snip"], tier=tier,
+                snippet=_PendingSnippet(expr), tier=tier,
             )
         )
     return results
@@ -150,22 +192,19 @@ def _lexical_tier(conn, expr, sub_expr, collections, limit, tier):
             # Mapping raw/(1+raw) is monotone, so max commutes with it.
             result.score = max(result.score, sub.score)
         else:
-            # Only original body snippets escape this module. An expanded
-            # MATCH by rowid is cheap; a camel-only body may have no match.
-            row = conn.execute(
-                f"SELECT snippet(documents_fts, 1, '', '', '…', {SNIPPET_TOKENS}) "
-                "FROM documents_fts WHERE rowid = ? AND documents_fts MATCH ?",
-                (sub.doc_id, sub_expr)).fetchone()
-            sub.snippet = row[0] if row else ""
+            # Subtoken-only hits use the expanded expression against the body.
+            sub.snippet = _PendingSnippet(sub_expr)
             candidates[sub.doc_id] = sub
     return sorted(candidates.values(), key=lambda r: (-r.score, r.collection, r.relpath))
 
 
 def search_lexical(conn: sqlite3.Connection, query: str, collections: list[str] | None = None,
-                   limit: int = CANDIDATES_PER_SOURCE) -> list[Result]:
+                   limit: int = CANDIDATES_PER_SOURCE,
+                   _defer_snippets: bool = False) -> list[Result]:
     """Union main and optional subtoken evidence within phrase → AND → OR tiers."""
     with read_snapshot(conn):
-        return _search_lexical(conn, query, collections, limit)
+        results = _search_lexical(conn, query, collections, limit)
+        return results if _defer_snippets else _resolve_snippets(conn, results)
 
 
 def _search_lexical(conn: sqlite3.Connection, query: str, collections: list[str] | None,
@@ -337,20 +376,26 @@ def search_hybrid(conn: sqlite3.Connection, store, embedder: Embedder, query: st
                   collections: list[str] | None = None, limit: int = 10,
                   *, trace: SearchTrace | None = None, fusion: str = "rrf") -> list[Result]:
     fusion = parse_fusion(fusion)
-    lex = search_lexical(conn, query, collections)
-    vec = search_vector(conn, store, embedder, query, collections)
-    lex_weight = LEXICAL_AND_WEIGHT if (lex and lex[0].tier in ("phrase", "and")) else LEXICAL_WEIGHT
-    ranked_lists = [("lexical", lex_weight, lex), ("vector", VECTOR_WEIGHT, vec)]
-    fuse = rrf_fuse
-    if fusion != "rrf":
-        weights = tuple(float(w) for w in fusion.removeprefix("weighted:").split(","))
-        fuse = lambda lists, n: weighted_fuse(lists, weights, n)
-    if trace is None:
-        return fuse(ranked_lists, limit)
-    trace.lexical = tuple(lex)
-    trace.vector = tuple(vec)
-    trace.fused_pool = tuple(fuse(ranked_lists, len({r.doc_id for r in lex + vec})))
-    return list(trace.fused_pool[:limit])
+    with read_snapshot(conn):
+        future = _QUERY_POOL.submit(_embed_query, embedder, query)
+        try:
+            lex = search_lexical(conn, query, collections, CANDIDATES_PER_SOURCE, True)
+            vec = search_vector(conn, store, _QueryEmbedding(future), query, collections)
+        finally:
+            # Do not leave queued work behind when lexical retrieval fails.
+            future.cancel()
+        lex_weight = LEXICAL_AND_WEIGHT if (lex and lex[0].tier in ("phrase", "and")) else LEXICAL_WEIGHT
+        ranked_lists = [("lexical", lex_weight, lex), ("vector", VECTOR_WEIGHT, vec)]
+        fuse = rrf_fuse
+        if fusion != "rrf":
+            weights = tuple(float(w) for w in fusion.removeprefix("weighted:").split(","))
+            fuse = lambda lists, n: weighted_fuse(lists, weights, n)
+        if trace is None:
+            return _resolve_snippets(conn, fuse(ranked_lists, limit), lex)
+        trace.lexical = tuple(lex)
+        trace.vector = tuple(vec)
+        trace.fused_pool = tuple(fuse(ranked_lists, len({r.doc_id for r in lex + vec})))
+        return _resolve_snippets(conn, list(trace.fused_pool[:limit]), lex)
 
 
 def rrf_fuse(ranked_lists: list[tuple[str, float, list[Result]]], limit: int) -> list[Result]:

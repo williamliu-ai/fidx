@@ -148,6 +148,13 @@ notes and chats in a separate database on the default profile. Switching
 profiles requires re-embedding into a fresh database (`--db`). To acquire the code model before offline
 search, run `fidx models fetch embed --profile jina-code-768` while online.
 
+Query embedding defaults to `min(8, os.cpu_count() or 1)` ONNX intra-op
+threads and one inter-op thread. `FIDX_THREADS` overrides this default;
+`fidx serve --threads N` takes precedence over the environment variable.
+Explicit thread settings retain their existing ONNX intra-op and inter-op
+behavior. Indexing keeps its existing session defaults, with
+`fidx index --threads N` taking precedence over `FIDX_THREADS`.
+
 ## Obsidian plugin
 
 A desktop-only Obsidian plugin lives in `obsidian-plugin/`. It lets a vault

@@ -39,6 +39,8 @@ def _partial_cache_fastembed(monkeypatch, tmp_path):
         tokenizer = None
 
     class FakeTextEmbedding:
+        EMBEDDINGS_REGISTRY = []
+
         def __init__(self, *, local_files_only, lazy_load=False, **kwargs):
             assert local_files_only
             if not lazy_load:
@@ -154,6 +156,8 @@ def test_fetch_records_cache_path_and_warm_search_uses_local_files_only(
         tokenizer = None
 
     class FakeTextEmbedding:
+        EMBEDDINGS_REGISTRY = []
+
         def __init__(self, *, model_name, cache_dir, local_files_only, **kwargs):
             calls.append((model_name, cache_dir, local_files_only))
             if local_files_only and not (cache / "ready").exists():
