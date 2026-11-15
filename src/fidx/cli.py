@@ -564,13 +564,16 @@ def _rerank_response_valid(candidate: dict, state: dict) -> bool:
               help="Rerank results with a cached model (optional =MODEL).")
 @click.option("--no-rerank", is_flag=True,
               help="Disable reranking, including when FIDX_RERANK is set.")
+@click.option("--timeout", type=click.FloatRange(min=0, min_open=True), default=10.0,
+              envvar="FIDX_SEARCH_TIMEOUT", show_default=True,
+              help="Search seconds: --timeout overrides FIDX_SEARCH_TIMEOUT, then 10 s.")
 @click.option("--no-daemon", is_flag=True, help="Skip the warm daemon even if running.")
 @click.pass_context
 def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: int,
            mode: str, fusion: str, as_json: bool, files_only: bool, min_score: float | None,
            truncate: str | None, budget_tokens: int | None, guidance: bool | None,
            explain: bool, rerank: str | None, no_rerank: bool,
-           no_daemon: bool) -> None:
+           no_daemon: bool, timeout: float) -> None:
     """Search the index. Default mode is hybrid (best recall).
 
     \b
@@ -586,6 +589,7 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
       Use --budget-tokens with --json to trim presentation fields in rank order.
     """
     from .search import parse_fusion
+    timeout = daemon.search_limits.timeout_seconds(timeout)
     try:
         fusion = parse_fusion(fusion)
     except ValueError as exc:
@@ -617,6 +621,7 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
             raise click.UsageError(f"invalid FIDX_RERANK: {exc}") from exc
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, create=False)
+    ctx.call_on_close(conn.close)
     selected_reranker = None
     has_documents = None
     if rerank_model is not None:
@@ -629,7 +634,7 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
     instance_id = db.get_meta(conn, "instance_id")
     req = {"cmd": "search", "query": query, "mode": mode,
            "collections": list(collections), "limit": limit, "min_score": min_score,
-           "truncate": truncate}
+           "truncate": truncate, "timeout": timeout, "instance_id": instance_id}
     if fusion != "rrf":
         req["fusion"] = fusion
     guidance_on = daemon.GUIDANCE_DEFAULT if guidance is None else guidance
@@ -662,6 +667,11 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                 db_path, req, expected_instance_id=instance_id,
                 require_guidance_protocol=guidance_protocol_required,
                 rerank_effective=rerank_effective)
+            if outcome.fallback_cause in ("timeout", "transport_error", "daemon_error"):
+                response = outcome.response or {}
+                raise errors.DaemonError(outcome.daemon_error or
+                    "Daemon request failed: " + outcome.fallback_cause,
+                    response.get("error_code", "timeout" if outcome.fallback_cause == "timeout" else "error"))
             stale_daemon = outcome.stale_instance
             fallback_cause = outcome.fallback_cause
             daemon_error = outcome.daemon_error
@@ -679,6 +689,12 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                     fallback_cause = "malformed_response"
         else:
             resp = daemon.client_request(db_path, req)
+            if resp is not None and resp.get("ok") is False:
+                if resp.get("error_code") == "stale_instance":
+                    stale_daemon = True
+                else:
+                    raise errors.DaemonError(resp.get("error", "Daemon search failed"),
+                                             resp.get("error_code", "error"))
             if resp is not None and resp.get("ok"):
                 if resp.get("instance_id") != instance_id:
                     stale_daemon = True
@@ -688,6 +704,8 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                         payload = candidate
     if payload is None:
         store = vector_store.open_store(conn, db_path)
+        if hasattr(store, "close"):
+            ctx.call_on_close(store.close)
         if has_documents is None:
             has_documents = conn.execute(
                 "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
@@ -844,15 +862,22 @@ def status(ctx: click.Context, as_json: bool) -> None:
 
 
 @main.command()
+@click.option("--workers", type=click.IntRange(min=1), default=None,
+              envvar="FIDX_DAEMON_WORKERS", help="Search workers (default: min(4, max(1, CPUs/2))).")
 @click.option("--threads", type=int, default=None,
               help="ONNX threads for query embedding (overrides $FIDX_THREADS; default: up to 8 intra-op, 1 inter-op).")
 @click.pass_context
-def serve(ctx: click.Context, threads: int | None) -> None:
+def serve(ctx: click.Context, threads: int | None, workers: int | None) -> None:
     """Run the warm-search daemon (foreground). Searches then take ~ms."""
     conn, prof = open_index(ctx.obj["db_path"], create=False)
     store = vector_store.open_store(conn, ctx.obj["db_path"])
-    daemon.serve(ctx.obj["db_path"], conn, store,
-                 FastEmbedder(prof, threads=threads, local_files_only=True))
+    try:
+        daemon.serve(ctx.obj["db_path"], conn, store,
+                     FastEmbedder(prof, threads=threads, local_files_only=True), workers=workers)
+    finally:
+        if hasattr(store, "close"):
+            store.close()
+        conn.close()
 
 
 @main.command()

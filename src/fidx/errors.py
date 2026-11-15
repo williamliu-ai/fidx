@@ -28,6 +28,8 @@ class ExitCode(IntEnum):
 
 STATUS_CODES = {
     "error": ExitCode.ERROR,
+    "timeout": ExitCode.ERROR,
+    "busy": ExitCode.ERROR,
     "index_missing": ExitCode.INDEX,
     "index_invalid": ExitCode.INDEX,
     "db_locked": ExitCode.DB_LOCKED,
@@ -42,6 +44,16 @@ class FidxError(Exception):
     def __init__(self, message: str, *, next_actions: list[dict] | None = None):
         super().__init__(message)
         self.next_actions = next_actions or []
+
+
+class SearchTimeout(FidxError):
+    status = "timeout"
+
+
+class DaemonError(FidxError):
+    def __init__(self, message: str, code: str = "error"):
+        super().__init__(message)
+        self.status = code if code in ("timeout", "busy") else "error"
 
 
 def _create_index_actions() -> list[dict]:

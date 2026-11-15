@@ -173,6 +173,33 @@ The CLI uses the daemon automatically when it is running; `--no-daemon` opts out
 The daemon socket is created in a per-user runtime/cache directory with
 owner-only permissions.
 
+Searches have a 10-second budget, including SQL retrieval and snippets. Set
+`FIDX_SEARCH_TIMEOUT` to seconds, or pass `fidx search --timeout SECONDS` to
+override it. The same budget applies with `--no-daemon`. The client allows one
+extra second for the reply. Embedding inputs are capped at 768 tokens; model
+inference cannot be interrupted, so expiry is checked before and after it.
+
+The daemon uses `min(4, max(1, CPU count / 2))` search workers (integer division)
+and at most twice that many waiting searches. `fidx serve --workers N` overrides
+`FIDX_DAEMON_WORKERS`. Excess requests receive `busy` immediately; health checks
+bypass the search pool. Request lines are limited to 1 MiB and five seconds,
+with at most 64 connections being read at once. Socket writes have a one-second
+limit. SIGTERM and SIGINT stop acceptance, drain admitted work, and remove the
+socket. A second daemon refuses to replace a live socket.
+
+Daemon timeouts, busy responses, transport failures and search errors exit
+nonzero without repeating the search locally. `--json` returns the existing
+`fidx.error.v1` envelope, with `timeout`, `busy` or `error` status. A missing or
+refused daemon connection uses cold search. A mismatched index identity is
+rejected before retrieval and uses labeled cold search; legacy protocol
+incompatibilities can also require cold search.
+
+Resource locks are never nested: embedding, reranking, and DuckDB operations
+acquire and release their own locks separately, in that stage order. Lock
+waits share the search deadline. The reranker cache retains one model; the
+embedding executor admits one job without a backlog. Each search owns and
+closes its database connection and vector-store handle, including on failure.
+
 Search, daemon startup, and `fidx calibrate` only load models already cached on
 this machine. If a model is missing, the command exits with a `fidx models fetch
 embed --profile ...` hint; it does not download in the query path. Run that

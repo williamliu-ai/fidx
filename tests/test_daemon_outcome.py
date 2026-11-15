@@ -86,7 +86,9 @@ def test_successful_old_daemon_is_accepted_only_without_new_protocol(monkeypatch
     assert old.path == "daemon"
     assert old.response == _response()
     assert old.fallback_cause is None
-    assert json.loads(fake.sent) == {"cmd": "search", "query": "topic"}
+    sent = json.loads(fake.sent)
+    assert 0 < sent.pop("timeout") <= 10
+    assert sent == {"cmd": "search", "query": "topic", "instance_id": "current"}
 
     fake = _request(monkeypatch, tmp_path, _response())
     incompatible = _outcome(tmp_path, require=True)
@@ -202,8 +204,8 @@ def test_malformed_rpc_response_falls_back(monkeypatch, tmp_path, response):
     _request(monkeypatch, tmp_path, response)
     result = _outcome(tmp_path)
     assert result.path == "cold"
-    assert result.fallback_cause == "malformed_response"
-    assert result.daemon_error is None
+    assert result.fallback_cause == ("daemon_error" if isinstance(response, dict) and response.get("ok") is False else "malformed_response")
+    assert bool(result.daemon_error) == (isinstance(response, dict) and response.get("ok") is False)
 
 
 @pytest.mark.parametrize("chunks", [
@@ -213,7 +215,7 @@ def test_empty_truncated_invalid_json_or_utf8_is_malformed(monkeypatch, tmp_path
     _request(monkeypatch, tmp_path, chunks=chunks)
     result = _outcome(tmp_path)
     assert result.path == "cold"
-    assert result.fallback_cause == "malformed_response"
+    assert result.fallback_cause == ("malformed_response" if chunks == [b"{}\n"] else "transport_error")
 
 
 @pytest.mark.parametrize("error,cause", [
