@@ -1046,7 +1046,7 @@ def _retry_busy(attempt, req, timeout):
     delay = .005
     last = None
     while True:
-        remaining = deadline - time.monotonic()
+        remaining = min(budget, deadline - time.monotonic())
         if remaining <= 0 and last is not None:
             return last
         wire = dict(req, timeout=max(remaining, .000001))
