@@ -15,9 +15,16 @@ from __future__ import annotations
 
 import importlib
 import re
-from importlib import metadata
 from pathlib import Path
 from typing import Any
+
+def __getattr__(name):
+    # Distribution metadata is only needed for capability checks, not the catalogue.
+    if name == "metadata":
+        from importlib import metadata
+        return metadata
+    raise AttributeError(name)
+
 
 RERANK_MODELS = (
     "Xenova/ms-marco-MiniLM-L-6-v2",
@@ -64,6 +71,8 @@ class RerankModelUnavailableError(RuntimeError):
 
 def probe_rerank_capability() -> type[Any]:
     """Read distribution metadata and import the class without model loading."""
+    from importlib import metadata
+
     try:
         version = metadata.version("fastembed")
     except metadata.PackageNotFoundError as exc:

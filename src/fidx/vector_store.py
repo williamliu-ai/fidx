@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-BACKENDS = ("sqlite-vec", "duckdb")
+from .config import VECTOR_BACKENDS as BACKENDS
 
 
 def sidecar_path(db_path: Path) -> Path:

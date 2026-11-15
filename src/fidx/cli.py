@@ -21,18 +21,33 @@ from pathlib import Path
 
 import click
 
-from . import __version__, budget, config, daemon, db, errors, freshness, indexer, rerank_models, vector_store
-from .embedder import FastEmbedder
+from . import __version__, config, daemon, db, errors, freshness, rerank_models
 from .locking import index_lock
 
 
-def open_index(db_path: Path, profile_name: str | None = None, *, create: bool = True):
+def FastEmbedder(*args, **kwargs):
+    """Load the embedding implementation only when a command needs it."""
+    from .embedder import FastEmbedder as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def __getattr__(name):
+    # Preserve the collection helper seam for callers without eager indexing imports.
+    if name == "indexer":
+        from . import indexer
+        return indexer
+    raise AttributeError(name)
+
+
+def open_index(db_path: Path, profile_name: str | None = None, *,
+               create: bool = True, load_vec: bool = True):
     """Open an index, optionally creating it, returning (conn, profile).
 
     Once embeddings exist, the index pins its profile in meta; a conflicting
     --profile is an error rather than a silent dim mismatch.
     """
-    conn = db.connect(db_path) if create else db.connect(db_path, create=False)
+    conn = db.connect(db_path) if create else db.connect(db_path, create=False, load_vec=load_vec)
     try:
         if create:
             db.init_schema(conn)
@@ -228,6 +243,8 @@ def collection() -> None:
 def collection_add(ctx: click.Context, root: Path, name: str, globs: tuple[str, ...],
                    exclude_globs: tuple[str, ...]) -> None:
     """Register ROOT as a collection. Run `fidx index` afterwards."""
+    from . import indexer
+
     conn, _ = open_index(ctx.obj["db_path"])
     indexer.add_collection(conn, name, root, list(globs) or None, list(exclude_globs) or None)
     click.echo(f"collection {name!r} -> {root}")
@@ -277,6 +294,9 @@ def mcp(ctx: click.Context) -> None:
 @click.argument("name")
 @click.pass_context
 def collection_remove(ctx: click.Context, name: str) -> None:
+    from . import indexer
+    from . import vector_store
+
     conn, _ = open_index(ctx.obj["db_path"], create=False)
     store = vector_store.open_store(conn, ctx.obj["db_path"])
     indexer.remove_collection(conn, store, name)
@@ -311,7 +331,7 @@ class IndexCommand(click.Command):
 @click.option("--threads", type=int, default=None, help="ONNX intra-op threads.")
 @click.option("--parallel", type=int, default=None,
               help="Data-parallel embedding workers (0 = all cores).")
-@click.option("--backend", type=click.Choice(vector_store.BACKENDS), default=None,
+@click.option("--backend", type=click.Choice(config.VECTOR_BACKENDS), default=None,
               help="Vector backend for a new index (default sqlite-vec; "
                    "duckdb = HNSW sidecar, needs the [duckdb] extra).")
 @click.option("--calibrate/--no-calibrate", "do_calibrate", default=True, show_default=True,
@@ -350,6 +370,9 @@ def _index_unlocked(ctx: click.Context, only: str | None, profile: str | None,
                     do_calibrate: bool, recalibrate_after: float,
                     rerank_prefetch: str | None, as_json: bool,
                     subtokens: bool | None = None) -> None:
+    from . import indexer
+    from . import vector_store
+
     db_path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, profile)
     db.ensure_instance_id(conn)
@@ -620,7 +643,7 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
         except ValueError as exc:
             raise click.UsageError(f"invalid FIDX_RERANK: {exc}") from exc
     db_path: Path = ctx.obj["db_path"]
-    conn, prof = open_index(db_path, create=False)
+    conn, prof = open_index(db_path, create=False, load_vec=False)
     ctx.call_on_close(conn.close)
     selected_reranker = None
     has_documents = None
@@ -703,12 +726,26 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
                     if isinstance(candidate, dict) and candidate.get("schema") == daemon.SEARCH_SCHEMA:
                         payload = candidate
     if payload is None:
+        from . import vector_store
+
+        if hasattr(conn, "enable_load_extension"):
+            # Keep the same database identity across the daemon attempt.
+            db.load_vector_extension(conn)
+        else:
+            # Some system Python builds need the alternate SQLite driver.
+            conn.close()
+            conn, prof = open_index(db_path, create=False)
+            ctx.call_on_close(conn.close)
+            has_documents = None
         store = vector_store.open_store(conn, db_path)
         if hasattr(store, "close"):
             ctx.call_on_close(store.close)
         if has_documents is None:
             has_documents = conn.execute(
                 "SELECT 1 FROM documents WHERE active = 1 LIMIT 1").fetchone() is not None
+        if rerank_model is not None and has_documents and selected_reranker is None:
+            selected_reranker, _ = rerank_models.resolve_reranker_model(
+                rerank_model, local_files_only=True)
         embedder = (FastEmbedder(prof, local_files_only=True)
                     if has_documents and mode in ("vector", "hybrid") else None)
         try:
@@ -730,6 +767,8 @@ def search(ctx: click.Context, query: str, collections: tuple[str, ...], limit: 
         if daemon_error is not None:
             execution["error"] = daemon_error
     if budget_tokens is not None:
+        from . import budget
+
         payload = budget.apply_budget(payload, budget_tokens)
 
     if as_json or ctx.obj["error_json"]:
@@ -822,6 +861,8 @@ def get(ctx: click.Context, target: str, full: bool, as_json: bool,
 @click.pass_context
 def status(ctx: click.Context, as_json: bool) -> None:
     """Index health: collections, documents, chunks, vectors, size."""
+    from . import vector_store
+
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, create=False)
     docs = conn.execute("SELECT count(*) AS n FROM documents").fetchone()["n"]
@@ -869,6 +910,8 @@ def status(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def serve(ctx: click.Context, threads: int | None, workers: int | None) -> None:
     """Run the warm-search daemon (foreground). Searches then take ~ms."""
+    from . import vector_store
+
     conn, prof = open_index(ctx.obj["db_path"], create=False)
     store = vector_store.open_store(conn, ctx.obj["db_path"])
     try:
@@ -902,6 +945,8 @@ def calibrate(ctx: click.Context, sample: int, target: float, reject: float,
     ceiling). The recommended floor rejects ~`reject` of noise; `search
     --truncate calibrated` applies it + the knee cut. With --store it is saved.
     """
+    from . import vector_store
+
     from . import calibrate as calibratemod
     db_path: Path = ctx.obj["db_path"]
     conn, prof = open_index(db_path, create=False)

@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from . import errors, search_limits, budget, config, db, freshness, rerank as rerankmod, rerank_models, search as searchmod, vector_store
+from . import errors, search_limits, config, db, rerank_models, search as searchmod
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
@@ -646,6 +646,8 @@ def _agent_envelope(conn, req: dict, mode: str, collections: list[str], limit: i
                     after_min: list[searchmod.Result],
                     final: list[searchmod.Result], *,
                     rerank_succeeded: bool = False) -> dict:
+    from . import freshness
+
     unknown = _unknown_collections(conn, collections)
     filters = {
         "raw_count": len(raw),
@@ -727,6 +729,9 @@ def _run_search(conn, store, embedder, req: dict,
                 *, trace: searchmod.SearchTrace | None = None,
                 reranker: rerankmod.Reranker | None = None,
                 rerank_n: int = 20) -> dict:
+    from . import budget
+    from . import rerank as rerankmod
+
     query = req["query"]
     mode = req.get("mode", "hybrid")
     fusion = searchmod.parse_fusion(req.get("fusion", "rrf"))
@@ -861,6 +866,8 @@ def _socket_startup(sock_path):
 
 
 def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -> None:
+    from . import vector_store
+
     if not hasattr(socketserver, "UnixStreamServer"):
         raise RuntimeError("Unix-socket daemon is unavailable on this platform")
     worker_count = _worker_count(workers)

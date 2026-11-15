@@ -55,10 +55,10 @@ def sqlite_module():
 
 
 def connect(db_path: Path, *, create: bool = True,
-            read_only: bool = False) -> sqlite3.Connection:
+            read_only: bool = False, load_vec: bool = True) -> sqlite3.Connection:
     if create and read_only:
         raise ValueError("read_only requires create=False")
-    sqlite = sqlite_module()
+    sqlite = sqlite_module() if load_vec else sqlite3
     db_path = Path(db_path)
     if create:
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,6 +81,19 @@ def connect(db_path: Path, *, create: bool = True,
         except sqlite.DatabaseError as exc:
             raise IndexInvalid(f"index {db_path} cannot be opened: {exc}") from exc
     conn.row_factory = sqlite.Row
+    if load_vec:
+        load_vector_extension(conn)
+    conn.execute("PRAGMA busy_timeout=5000")
+    if read_only:
+        conn.execute("PRAGMA query_only=ON")
+    if create:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+def load_vector_extension(conn) -> None:
+    """Enable vector execution on a metadata-only connection when needed."""
     if not hasattr(conn, "enable_load_extension"):
         raise RuntimeError(
             "this Python's sqlite3 was built without loadable-extension support "
@@ -91,13 +104,6 @@ def connect(db_path: Path, *, create: bool = True,
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
-    conn.execute("PRAGMA busy_timeout=5000")
-    if read_only:
-        conn.execute("PRAGMA query_only=ON")
-    if create:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
 
 
 def validate_index(conn: sqlite3.Connection) -> None:
