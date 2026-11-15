@@ -15,10 +15,16 @@ import threading
 import numpy as np
 from threadpoolctl import threadpool_limits
 
-from . import search_limits
+from . import db, search_limits
 
 
 class VectorCache:
+    """Load one capped embedding matrix asynchronously, using SQLite meanwhile.
+
+    The old matrix is freed before allocation, so generations do not overlap.
+    IDs and norms add small per-vector overhead to the embedding payload cap.
+    Failed generations are attempted again only after the snapshot key changes.
+    """
     def __init__(self, path):
         self.path = path
         self.lock = threading.Lock()
@@ -27,6 +33,9 @@ class VectorCache:
         self.key = None
         self.matrix = self.ids = self.norms = None
         self.backend = 'sqlite-vec'
+        self.loader = None
+        self.attempted = None
+        self.closed = False
         try:
             mb = float(os.environ.get('FIDX_VECTOR_CACHE_MB', '1024'))
             self.cap = int(mb * 1024 * 1024) if math.isfinite(mb) and mb >= 0 else 0
@@ -34,16 +43,24 @@ class VectorCache:
             self.cap = 0
 
     def close(self):
-        if self.observer is not None:
-            self.observer.close()
-        self.observer = None
-        self.matrix = self.ids = self.norms = None
+        with self.lock:
+            self.closed = True
+            loader = self.loader
+        if loader is not None:
+            loader.join()
+        with self.lock:
+            if self.observer is not None:
+                self.observer.close()
+            self.observer = None
+            self.matrix = self.ids = self.norms = None
 
     def _version(self):
         stat = self.path.stat()
         identity = (stat.st_dev, stat.st_ino)
         if identity != self.identity or self.observer is None:
-            self.close()
+            if self.observer is not None:
+                self.observer.close()
+            self.matrix = self.ids = self.norms = None
             self.identity = identity
             self.key = None
             self.observer = sqlite3.connect(self.path.absolute().as_uri() + '?mode=ro',
@@ -69,11 +86,37 @@ class VectorCache:
             if owned:
                 conn.rollback()
 
+    def _build(self):
+        # A worker owns its connection and transaction; no request deadline or
+        # request connection crosses the thread boundary.
+        try:
+            stat = self.path.stat()
+            identity = (stat.st_dev, stat.st_ino)
+            conn = db.connect(self.path, create=False, read_only=True)
+            try:
+                from .vector_store import SqliteVecStore
+                with self.snapshot(conn, SqliteVecStore(conn), identity=identity) as snapshot:
+                    key = snapshot.key
+                    if key is not None:
+                        with self.lock:
+                            self.attempted = key
+                    result = self._load(conn, key) if key is not None else None
+                with self.lock:
+                    if not self.closed and result is not None:
+                        self.matrix, self.ids, self.norms = result
+                        self.key = key
+                        self.backend = 'numpy-exact'
+            finally:
+                conn.close()
+        except Exception:
+            # Retry only when a request observes a different generation.
+            pass
+        finally:
+            with self.lock:
+                if self.matrix is None:
+                    self.backend = 'sqlite-vec'
+
     def _load(self, conn, key):
-        # Discard the previous generation before allocating its replacement.
-        self.matrix = self.ids = self.norms = None
-        self.backend = 'sqlite-vec'
-        self.key = key
         count, size = conn.execute(
             'SELECT count(*), length(embedding) FROM vectors').fetchone()
         if not count or not size or count * size > self.cap:
@@ -82,28 +125,31 @@ class VectorCache:
         ids = np.empty(count, dtype=np.int64)
         # Stream blobs, avoiding a second matrix-sized list of Python bytes.
         for i, row in enumerate(conn.execute('SELECT chunk_id, embedding FROM vectors')):
-            if i % 1024 == 0:
-                search_limits.remaining()
             ids[i] = row[0]
             matrix[i] = np.frombuffer(row[1], dtype=np.float32)
         norms = np.sqrt(np.einsum('ij,ij->i', matrix, matrix))
         if not np.all(np.isfinite(norms)) or np.any(norms == 0):
             return
-        self.matrix, self.ids, self.norms = matrix, ids, norms
-        self.backend = 'numpy-exact'
+        return matrix, ids, norms
 
     def knn(self, conn, fallback, key, query, k, path_ordered=False):
         if key is None:
             return fallback.knn(query, k)
         with search_limits.resource(self.lock):
             try:
-                if key != self.key:
-                    try:
-                        self._load(conn, key)
-                    except BaseException:
+                if key != self.key or self.matrix is None:
+                    if (not self.closed and self.cap and key != self.attempted
+                            and (self.loader is None or not self.loader.is_alive())
+                            and key == self._version()):
+                        # Free the old generation before building: at most one
+                        # capped matrix is resident, with fallback during loading.
+                        self.matrix = self.ids = self.norms = None
                         self.key = None
-                        raise
-                if self.matrix is None:
+                        self.attempted = key
+                        self.backend = 'loading'
+                        self.loader = threading.Thread(target=self._build, daemon=True,
+                                                       name='fidx-vector-loader')
+                        self.loader.start()
                     return fallback.knn(query, k)
                 with threadpool_limits(limits=1, user_api='blas'):
                     norm = np.linalg.norm(query)

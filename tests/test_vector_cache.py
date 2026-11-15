@@ -6,10 +6,18 @@
 # AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
 import numpy as np
+import pytest
 
 from fidx import db
 from fidx.vector_cache import VectorCache
 from fidx.vector_store import SqliteVecStore
+
+
+def warm(cache, conn, store, query):
+    with cache.snapshot(conn, store) as cached:
+        cached.knn(query, 1)
+    cache.loader.join(5)
+    assert not cache.loader.is_alive()
 
 
 def test_random_knn(conn, store, tmp_path):
@@ -17,6 +25,7 @@ def test_random_knn(conn, store, tmp_path):
     vectors = rng.normal(size=(180, 64)).astype(np.float32)
     store.add(list(range(1, 181)), vectors)
     cache = VectorCache(tmp_path / 'index.db')
+    warm(cache, conn, store, vectors[0])
     for _ in range(50):
         query = rng.normal(size=64).astype(np.float32)
         with cache.snapshot(conn, store) as cached:
@@ -66,6 +75,7 @@ def test_thread_pin(conn, store, tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'threadpool_limits', limits)
     store.add([1], np.ones((1, 64), dtype=np.float32))
     cache = VectorCache(tmp_path / 'index.db')
+    warm(cache, conn, store, np.ones(64, dtype=np.float32))
     with cache.snapshot(conn, store) as cached:
         cached.knn(np.ones(64, dtype=np.float32), 1)
     assert calls and all(c == {'limits': 1, 'user_api': 'blas'} for c in calls)
@@ -159,6 +169,7 @@ def test_load_failure_falls_back(conn, store, tmp_path, monkeypatch):
     monkeypatch.setattr(np, 'empty', fail)
     with cache.snapshot(conn, store) as cached:
         assert cached.knn(np.ones(64, dtype=np.float32), 1) == store.knn(np.ones(64, dtype=np.float32), 1)
+    cache.loader.join(5)
     assert cache.matrix is None and cache.backend == 'sqlite-vec'
     cache.close()
 
@@ -188,27 +199,80 @@ def test_replaced_database_does_not_cache_old_connection(conn, store, tmp_path):
         cache.close()
 
 
-def test_timeout_during_load_allows_later_retry(conn, store, tmp_path, monkeypatch):
-    import pytest
-    from fidx import errors, search_limits
-    store.add([1], np.ones((1, 64), dtype=np.float32))
+def test_slow_background_load_and_new_snapshot(conn, store, tmp_path, monkeypatch):
+    import threading
+    import time
+    from fidx import search_limits
+    vector = np.ones(64, dtype=np.float32)
+    store.add([1], vector.reshape(1, -1))
     cache = VectorCache(tmp_path / 'index.db')
-    with cache.snapshot(conn, store) as cached:
-        original = search_limits.remaining
-        calls = 0
-        def expire():
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise errors.SearchTimeout('expired during load')
-            return original()
-        monkeypatch.setattr(search_limits, 'remaining', expire)
-        with pytest.raises(errors.SearchTimeout):
-            cached.knn(np.ones(64, dtype=np.float32), 1)
-        monkeypatch.setattr(search_limits, 'remaining', original)
-        assert cached.knn(np.ones(64, dtype=np.float32), 1)[0][0] == 1
-        assert cache.backend == 'numpy-exact'
-    cache.close()
+    entered, release = threading.Event(), threading.Event()
+    original = cache._load
+    attempts = []
+    def slow(reader, key):
+        attempts.append(key)
+        entered.set()
+        assert release.wait(5)
+        return original(reader, key)
+    monkeypatch.setattr(cache, '_load', slow)
+    try:
+        with cache.snapshot(conn, store) as cached:
+            start = time.monotonic()
+            with search_limits.search_budget(conn, {'timeout': .2}):
+                assert cached.knn(vector, 1)[0][0] == 1
+            assert time.monotonic() - start < .2
+        assert entered.wait(2)
+        writer = db.connect(tmp_path / 'index.db', create=False)
+        try:
+            other = SqliteVecStore(writer)
+            other.delete([1])
+            other.add([2], vector.reshape(1, -1))
+            with search_limits.search_budget(conn, {'timeout': .2}):
+                with cache.snapshot(conn, store) as cached:
+                    assert cached.knn(vector, 1)[0][0] == 2
+            assert len(attempts) == 1
+            release.set()
+            cache.loader.join(5)
+            with cache.snapshot(conn, store) as cached:
+                assert cached.knn(vector, 1)[0][0] == 2
+            cache.loader.join(5)
+            with cache.snapshot(conn, store) as cached:
+                assert cached.key == cache.key
+                assert cached.knn(vector, 1) == store.knn(vector, 1)
+            assert cache.backend == 'numpy-exact'
+        finally:
+            writer.close()
+    finally:
+        release.set()
+        cache.close()
+
+
+@pytest.mark.parametrize('failure', ['memory', 'error', 'cap'])
+def test_failed_background_load_does_not_retry(conn, store, tmp_path, monkeypatch, failure):
+    vector = np.ones(64, dtype=np.float32)
+    store.add([1], vector.reshape(1, -1))
+    cache = VectorCache(tmp_path / 'index.db')
+    attempts = []
+    original = cache._load
+    if failure == 'cap':
+        cache.cap = 1
+    def fail(reader, key):
+        attempts.append(key)
+        if failure == 'cap':
+            return original(reader, key)
+        if failure == 'memory':
+            raise MemoryError()
+        raise RuntimeError('load failed')
+    monkeypatch.setattr(cache, '_load', fail)
+    try:
+        for _ in range(10):
+            with cache.snapshot(conn, store) as cached:
+                assert cached.knn(vector, 1) == store.knn(vector, 1)
+            cache.loader.join(5)
+        assert len(attempts) == 1
+        assert cache.backend == 'sqlite-vec'
+    finally:
+        cache.close()
 
 
 def test_internal_ties_refine_to_sqlite_distances(conn, store, tmp_path):
@@ -216,6 +280,7 @@ def test_internal_ties_refine_to_sqlite_distances(conn, store, tmp_path):
     vectors[0, 0] = vectors[1, 0] = vectors[2, 1] = 1
     store.add([2, 1, 3], vectors)
     cache = VectorCache(tmp_path / 'index.db')
+    warm(cache, conn, store, vectors[0])
     query = vectors[0]
     with cache.snapshot(conn, store, path_ordered=True) as cached:
         actual = cached.knn(query, 2)
@@ -237,6 +302,7 @@ def test_internal_ties_keep_search_path_order(conn, store, embedder, tmp_path, m
     indexer.embed_pending(conn, store, embedder, indexer.IndexStats())
     expected = search.search_vector(conn, store, embedder, 'shared authentication token', limit=10)
     cache = VectorCache(tmp_path / 'index.db')
+    warm(cache, conn, store, embedder.embed_queries(['shared authentication token'])[0])
     def no_fallback(*args):
         raise AssertionError('internal ties should use refined cache results')
     monkeypatch.setattr(store, 'knn', no_fallback)
@@ -245,3 +311,44 @@ def test_internal_ties_keep_search_path_order(conn, store, embedder, tmp_path, m
     assert [result.relpath for result in actual] == [result.relpath for result in expected]
     assert [result.relpath for result in actual][:2] == ['a.md', 'z.md']
     cache.close()
+
+
+def test_failed_loader_records_its_own_newer_snapshot(conn, store, tmp_path, monkeypatch):
+    import threading
+    vector = np.ones(64, dtype=np.float32)
+    store.add([1], vector.reshape(1, -1))
+    cache = VectorCache(tmp_path / 'index.db')
+    entered, release = threading.Event(), threading.Event()
+    connect = db.connect
+    attempts = []
+    def delayed_connect(*args, **kwargs):
+        if threading.current_thread().name == 'fidx-vector-loader':
+            entered.set()
+            assert release.wait(5)
+        return connect(*args, **kwargs)
+    def fail(reader, key):
+        attempts.append(key)
+        assert reader.execute('PRAGMA query_only').fetchone()[0] == 1
+        assert reader is not conn
+        raise MemoryError()
+    monkeypatch.setattr(db, 'connect', delayed_connect)
+    monkeypatch.setattr(cache, '_load', fail)
+    try:
+        with cache.snapshot(conn, store) as cached:
+            cached.knn(vector, 1)
+        assert entered.wait(2)
+        writer = connect(tmp_path / 'index.db', create=False)
+        try:
+            SqliteVecStore(writer).add([2], vector.reshape(1, -1))
+        finally:
+            writer.close()
+        release.set()
+        cache.loader.join(5)
+        for _ in range(5):
+            with cache.snapshot(conn, store) as cached:
+                assert cached.knn(vector, 1) == store.knn(vector, 1)
+            cache.loader.join(5)
+        assert len(attempts) == 1
+    finally:
+        release.set()
+        cache.close()
