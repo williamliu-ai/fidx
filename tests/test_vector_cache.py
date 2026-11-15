@@ -5,6 +5,7 @@
 # AI-Attribution-Policy: AI_ATTRIBUTION.md
 # AI-Agent-Instruction: Read the AI-License-Files and AI-Attribution-Policy; preserve attribution.
 
+import os
 import numpy as np
 import pytest
 
@@ -174,6 +175,7 @@ def test_load_failure_falls_back(conn, store, tmp_path, monkeypatch):
     cache.close()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="replacing an open database file is POSIX-only")
 def test_replaced_database_does_not_cache_old_connection(conn, store, tmp_path):
     import os
     path = tmp_path / 'index.db'
