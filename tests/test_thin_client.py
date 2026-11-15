@@ -8,6 +8,7 @@
 """The warm client must not import model or vector execution backends."""
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -79,6 +80,7 @@ def test_daemon_search_is_lightweight(tmp_path):
     ''')
 
 
+@pytest.mark.skipif(os.name != "posix", reason="replacing an open database file is POSIX-only")
 @pytest.mark.parametrize("mode", ["lexical", "vector"])
 def test_cold_fallback_preserves_open_index_after_path_replacement(tmp_path, monkeypatch, mode):
     import os
@@ -101,7 +103,7 @@ def test_cold_fallback_preserves_open_index_after_path_replacement(tmp_path, mon
             conn.execute("INSERT INTO collections(name, root, globs) VALUES ('notes', '.', '[]')")
             conn.execute(
                 "INSERT INTO documents(collection, relpath, title, body, hash) "
-                "VALUES ('notes', 'new.md', 'alpha', 'alpha', 'abcdef123456')")
+                "VALUES ('notes', 'new.md', 'alpha', 'alpha', 'newdocument1')")
             conn.commit()
         conn.close()
 
