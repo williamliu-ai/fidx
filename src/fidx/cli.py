@@ -845,7 +845,7 @@ def status(ctx: click.Context, as_json: bool) -> None:
 
 @main.command()
 @click.option("--threads", type=int, default=None,
-              help="ONNX intra-op threads for query embedding (also $FIDX_THREADS).")
+              help="ONNX threads for query embedding (overrides $FIDX_THREADS; default: up to 8 intra-op, 1 inter-op).")
 @click.pass_context
 def serve(ctx: click.Context, threads: int | None) -> None:
     """Run the warm-search daemon (foreground). Searches then take ~ms."""
