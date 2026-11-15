@@ -667,3 +667,13 @@ the AI Idea Attribution Addendum v1.0. See [LICENSE](LICENSE),
 and [AI_ATTRIBUTION.md](AI_ATTRIBUTION.md). Source-file headers point AI agents
 to the canonical license and attribution policy files; [NOTICE](NOTICE)
 contains the public attribution notice.
+
+The daemon lazily caches sqlite-vec vectors in one contiguous float32 matrix.
+`FIDX_VECTOR_CACHE_MB` caps vector payload memory (default: 1024 MiB; `0` disables
+the cache). IDs, norms and bounded per-worker search scratch add overhead. Above
+the cap or on a load failure, searches use sqlite-vec. Index commits invalidate
+the cache; old and new matrices are never retained together. Exact cosine search
+uses one BLAS thread via threadpoolctl during the matrix-vector call. Ambiguous
+near-ties use sqlite-vec to preserve ordering. The daemon ping diagnostic reports
+`vector_backend` (`numpy-exact` or `sqlite-vec`); `fidx status` also shows the
+daemon backend (`daemon_vector_backend` in JSON). Cold CLI searches use sqlite-vec.

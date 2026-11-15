@@ -870,6 +870,9 @@ def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -
 
     if not hasattr(socketserver, "UnixStreamServer"):
         raise RuntimeError("Unix-socket daemon is unavailable on this platform")
+    from .vector_cache import VectorCache
+
+    vector_cache = VectorCache(db_path)
     worker_count = _worker_count(workers)
     instance_id = get_meta(conn, "instance_id")
     daemon_fingerprint = config.profile_fingerprint(embedder.profile)
@@ -912,6 +915,8 @@ def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -
                 return list(rerank_slot["scorer"].rerank(*args, **kwargs))
 
     def search_request(req: dict, rerank_state: dict | None) -> dict:
+        before_open = db_path.stat()
+        request_identity = (before_open.st_dev, before_open.st_ino)
         request_conn = db.connect(db_path, create=False, read_only=True)
         try:
             with search_limits.search_budget(request_conn, req):
@@ -929,6 +934,10 @@ def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -
                         rerank_models.probe_rerank_capability()
                         scorer = LockedReranker(rerank_state["model"])
                     selected_store = LockedStore(request_store) if request_store.name == "duckdb" else request_store
+                    if request_store.name == "sqlite-vec" and req.get("mode", "hybrid") in ("vector", "hybrid"):
+                        with vector_cache.snapshot(request_conn, request_store, identity=request_identity,
+                                                   path_ordered=True) as cached_store:
+                            return run_search(request_conn, cached_store, locked_embedder, req, reranker=scorer)
                     return run_search(request_conn, selected_store, locked_embedder, req, reranker=scorer)
                 finally:
                     if hasattr(request_store, "close"):
@@ -955,7 +964,7 @@ def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -
                 if protocol is not None and (type(protocol) is not int or protocol != 1):
                     raise ValueError("unsupported guidance protocol")
                 if req.get("cmd") == "ping":
-                    resp = {"ok": True, "pong": True}
+                    resp = {"ok": True, "pong": True, "vector_backend": vector_cache.backend}
                 elif req.get("instance_id") is not None and req["instance_id"] != instance_id:
                     resp = {"ok": False, "error_code": "stale_instance", "error": "Daemon serves a different index"}
                 else:
@@ -1014,6 +1023,7 @@ def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -
         server.serve_forever(poll_interval=.01)
     finally:
         server.server_close()
+        vector_cache.close()
         for signum, previous in old_handlers.items():
             signal.signal(signum, previous)
         with _socket_startup(sock_path):

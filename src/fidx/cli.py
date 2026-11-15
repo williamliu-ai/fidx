@@ -869,6 +869,9 @@ def status(ctx: click.Context, as_json: bool) -> None:
     chunks = conn.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"]
     store = vector_store.open_store(conn, db_path)
     vecs = store.count()
+    response = daemon.client_request(db_path, {"cmd": "ping"})
+    daemon_backend = (response.get("vector_backend") if response and response.get("ok") and
+                      response.get("instance_id") == db.get_meta(conn, "instance_id") else None)
     if as_json:
         collections = []
         for row in conn.execute("SELECT name, root FROM collections ORDER BY name"):
@@ -882,7 +885,7 @@ def status(ctx: click.Context, as_json: bool) -> None:
             "profile": prof.name, "backend": store.name,
             "subtokens": db.get_meta(conn, "subtokens") == "1",
             "collections": collections, "documents": docs, "chunks": chunks,
-            "embedded_chunks": vecs,
+            "embedded_chunks": vecs, "daemon_vector_backend": daemon_backend,
         }, ensure_ascii=False))
         return
     size_mb = db_path.stat().st_size / 1e6 if db_path.exists() else 0
@@ -893,11 +896,12 @@ def status(ctx: click.Context, as_json: bool) -> None:
     click.echo(f"profile: {prof.name} ({prof.model}, {prof.dim}d)  backend: {store.name}")
     click.echo(f"subtokens: {db.get_meta(conn, 'subtokens') == '1'}")
     click.echo(f"documents: {docs}  chunks: {chunks}  vectors: {vecs}")
-    response = daemon.client_request(db_path, {"cmd": "ping"})
     daemon_state = ("running" if response and response.get("ok") and
                     response.get("instance_id") == db.get_meta(conn, "instance_id")
                     else "not running")
     click.echo(f"daemon: {daemon_state}")
+    if daemon_backend is not None:
+        click.echo(f"daemon vector backend: {daemon_backend}")
     for row in conn.execute("SELECT collection, count(*) AS n FROM documents GROUP BY collection"):
         click.echo(f"  {row['collection']}: {row['n']} docs")
 
