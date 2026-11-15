@@ -7,6 +7,7 @@
 
 """Regression checks from independent daemon lifecycle review."""
 import json
+import os
 import socket
 import threading
 
@@ -16,6 +17,8 @@ from click.testing import CliRunner
 from fidx import daemon, db, errors
 from fidx.cli import main
 from test_daemon_limits import running
+
+pytestmark = pytest.mark.skipif(os.name != "posix", reason="Unix sockets required")
 
 
 def test_deep_json_cannot_stop_accept_loop(tmp_path, monkeypatch):
