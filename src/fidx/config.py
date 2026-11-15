@@ -13,6 +13,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+VECTOR_BACKENDS = ("sqlite-vec", "duckdb")
+
 DEFAULT_GLOBS = ["**/*.md", "**/*.markdown", "**/*.txt"]
 
 

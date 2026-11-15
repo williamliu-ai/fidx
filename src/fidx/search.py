@@ -27,7 +27,10 @@ from . import search_limits
 from .errors import SearchTimeout
 from .db import has_chunk_line_columns, read_snapshot, subtokens_ready
 from .subtokens import TOKEN_RE as _TOKEN_RE, expand_query, subtoken_match_expr
-from .embedder import Embedder
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .embedder import Embedder
 
 RRF_K = 60
 LEXICAL_WEIGHT = 1.0

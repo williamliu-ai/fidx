@@ -12,8 +12,19 @@ from __future__ import annotations
 import sqlite3
 from enum import IntEnum
 
-from .embedder import ModelUnavailableError
 from .rerank_models import RerankCapabilityError, RerankModelUnavailableError
+
+
+class ModelUnavailableError(RuntimeError):
+    """The selected embedding model cannot be loaded from local files."""
+
+    def __init__(self, profile_name: str, model_name: str):
+        self.profile_name = profile_name
+        super().__init__(
+            f"embedding model {model_name!r} for profile {profile_name!r} "
+            f"is unavailable locally; run "
+            f"`fidx models fetch embed --profile {profile_name}`"
+        )
 
 
 class ExitCode(IntEnum):

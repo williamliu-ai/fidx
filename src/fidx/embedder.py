@@ -22,6 +22,7 @@ from typing import Iterable, Protocol, Sequence
 import numpy as np
 
 from .config import EmbedProfile
+from .errors import ModelUnavailableError
 
 # Hard cap on tokens per embedded sequence. Token-dense text (e.g. binary
 # content read with errors="replace" — ~1 token/char) meets long-context
@@ -83,18 +84,6 @@ class Embedder(Protocol):
     def embed_docs(self, texts: Sequence[str]) -> np.ndarray: ...
 
     def embed_queries(self, texts: Sequence[str]) -> np.ndarray: ...
-
-
-class ModelUnavailableError(RuntimeError):
-    """The selected embedding model cannot be loaded from local files."""
-
-    def __init__(self, profile_name: str, model_name: str):
-        self.profile_name = profile_name
-        super().__init__(
-            f"embedding model {model_name!r} for profile {profile_name!r} "
-            f"is unavailable locally; run "
-            f"`fidx models fetch embed --profile {profile_name}`"
-        )
 
 
 class FastEmbedder:
