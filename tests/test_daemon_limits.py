@@ -16,7 +16,7 @@ import queue
 import socket
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import pytest
@@ -82,34 +82,90 @@ def running(tmp_path, monkeypatch, *, workers=1):
         assert not failures, failures
 
 
-def test_busy_when_worker_and_two_waiting_slots_are_full(tmp_path, monkeypatch):
+def busy_client(path, timeout, protocol):
+    if protocol:
+        identity = daemon.client_request(path, {"cmd": "ping"})["instance_id"]
+        return daemon.client_request_outcome(
+            path, request(timeout=timeout), expected_instance_id=identity).response
+    return daemon.client_request(path, request(timeout=timeout))
+
+
+def test_busy_cap(tmp_path, monkeypatch):
+    with running(tmp_path, monkeypatch) as (path, server):
+        for _ in range(65):
+            assert server.slots.acquire(blocking=False)
+        reply = daemon._client_request_once(path, request(), timeout=1)
+        assert reply["error_code"] == "busy"
+
+
+@pytest.mark.parametrize("protocol", [False, True])
+def test_busy_then_ok_executes_search_exactly_once(tmp_path, monkeypatch, protocol):
+    calls = []
+    monkeypatch.setattr(daemon, "run_search", lambda *a, **k: calls.append(True) or {"schema": daemon.SEARCH_SCHEMA})
+    with running(tmp_path, monkeypatch) as (path, server):
+        while server.slots.acquire(blocking=False):
+            pass
+        timer = threading.Timer(.08, server.slots.release)
+        timer.start()
+        try:
+            reply = busy_client(path, .5, protocol)
+            assert reply["ok"]
+            assert calls == [True]
+        finally:
+            timer.join()
+
+
+@pytest.mark.parametrize("protocol", [False, True])
+def test_busy_until_deadline(tmp_path, monkeypatch, protocol):
+    calls = []
+    monkeypatch.setattr(daemon, "run_search", lambda *a, **k: calls.append(True) or {"schema": daemon.SEARCH_SCHEMA})
+    with running(tmp_path, monkeypatch) as (path, server):
+        while server.slots.acquire(blocking=False):
+            pass
+        started = time.monotonic()
+        reply = busy_client(path, .15, protocol)
+        elapsed = time.monotonic() - started
+        assert reply["error_code"] == "busy"
+        assert .14 <= elapsed < .3
+        assert not calls
+
+
+def test_queue_depth_default(tmp_path, monkeypatch):
+    with running(tmp_path, monkeypatch, workers=5) as (_, server):
+        count = 0
+        while server.slots.acquire(blocking=False):
+            count += 1
+        assert count == 5 + max(64, 5 * 16)
+
+
+def test_queued_expired_request_skips_search(tmp_path, monkeypatch):
     entered = threading.Event()
     release = threading.Event()
     calls = []
 
-    def blocked(*args, **kwargs):
-        calls.append(threading.get_ident())
+    def blocked(conn, store, embedder, req, **kwargs):
+        calls.append(req["query"])
         entered.set()
-        assert release.wait(3)
-        return {"schema": daemon.SEARCH_SCHEMA}
+        assert release.wait(2)
+        return {}
 
     monkeypatch.setattr(daemon, "run_search", blocked)
     with running(tmp_path, monkeypatch) as (path, _):
-        with ThreadPoolExecutor(max_workers=8) as clients:
-            pending = [clients.submit(daemon.client_request, path, request(), 2)
-                       for _ in range(8)]
-            try:
-                assert entered.wait(1)
-                # Five refusals must arrive while the worker remains blocked.
-                done = as_completed(pending, timeout=1)
-                early = [next(done).result() for _ in range(5)]
-                assert all(reply and reply.get("error_code") == "busy" for reply in early)
-                assert len(calls) == 1
-            finally:
+        with ThreadPoolExecutor(max_workers=2) as clients:
+            first = clients.submit(daemon.client_request, path, request("first"), 2)
+            assert entered.wait(1)
+            # Raw socket keeps reading after the search deadline to inspect
+            # the queued response, independently of the client's own timeout.
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+                peer.settimeout(1)
+                peer.connect(str(daemon.socket_path_for(path)))
+                peer.sendall((json.dumps(request("expired", timeout=.03)) + "\n").encode())
+                time.sleep(.1)
                 release.set()
-            replies = [future.result(timeout=3) for future in pending]
-        assert sum(reply["ok"] for reply in replies) == 3
-        assert sum(reply.get("error_code") == "busy" for reply in replies) == 5
+                reply = json.loads(peer.recv(65536))
+            assert reply["error_code"] == "timeout"
+            assert first.result()["ok"]
+            assert calls == ["first"]
 
 
 def test_ping_bypasses_saturated_search_workers(tmp_path, monkeypatch):
@@ -122,7 +178,9 @@ def test_ping_bypasses_saturated_search_workers(tmp_path, monkeypatch):
         return {"schema": daemon.SEARCH_SCHEMA}
 
     monkeypatch.setattr(daemon, "run_search", blocked)
-    with running(tmp_path, monkeypatch) as (path, _):
+    with running(tmp_path, monkeypatch) as (path, server):
+        for _ in range(62):
+            assert server.slots.acquire(blocking=False)
         with ThreadPoolExecutor(max_workers=3) as clients:
             pending = [clients.submit(daemon.client_request, path, request(), 2)
                        for _ in range(3)]
@@ -323,3 +381,40 @@ def test_daemon_sql_deadline_interrupts_work(tmp_path, monkeypatch):
         assert reply and reply.get('error_code') == 'timeout'
         assert time.monotonic() - started < .3
         assert daemon.client_request(path, {'cmd': 'ping'}, timeout=1)['pong']
+
+
+@pytest.mark.parametrize("protocol", [False, True])
+def test_daemon_disappears_after_busy_without_cold_rerun(monkeypatch, protocol):
+    replies = iter([{"ok": False, "error_code": "busy"}, None])
+    if protocol:
+        def attempt(*args, **kwargs):
+            return daemon.ClientOutcome("cold", response=next(replies))
+        monkeypatch.setattr(daemon, "_client_request_outcome_once", attempt)
+        call = lambda: daemon.client_request_outcome(
+            None, request(timeout=.2), expected_instance_id="current")
+    else:
+        monkeypatch.setattr(daemon, "_client_request_once", lambda *a: next(replies))
+        call = lambda: daemon.client_request(None, request(timeout=.2))
+    from fidx.errors import DaemonError
+    with pytest.raises(DaemonError):
+        call()
+
+
+@pytest.mark.parametrize("flags", [[], ["--guidance"]])
+def test_cli_busy_deadline_includes_waiting(tmp_path, monkeypatch, flags):
+    from click.testing import CliRunner
+    from fidx.cli import main
+
+    calls = []
+    monkeypatch.setattr(daemon, "run_search", lambda *a, **k: calls.append(True) or {})
+    with running(tmp_path, monkeypatch) as (path, server):
+        while server.slots.acquire(blocking=False):
+            pass
+        started = time.monotonic()
+        result = CliRunner().invoke(main, ["--db", str(path), "search", "alpha",
+            "--mode", "lexical", "--timeout", ".15", "--json", *flags])
+        elapsed = time.monotonic() - started
+        assert .14 <= elapsed < .3
+        assert result.exit_code != 0
+        assert json.loads(result.output)["message"] == "Daemon search workers and queue are full"
+        assert not calls

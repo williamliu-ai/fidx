@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import socket
 import socketserver
 import signal
@@ -120,7 +121,7 @@ def _bind_private_unix_server(sock_path: Path, handler) -> socketserver.UnixStre
         def __init__(self, *args):
             workers = getattr(handler, "workers", _worker_count())
             self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fidx-search")
-            self.slots = threading.BoundedSemaphore(workers * 3)
+            self.slots = threading.BoundedSemaphore(workers + max(64, workers * 16))
             self.readers = {}
             self.lines = {}
             super().__init__(*args)
@@ -1017,7 +1018,41 @@ def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -
                 pass
 
 
+def _retry_busy(attempt, req, timeout):
+    """Retry only refused searches, sharing one budget across all attempts."""
+    if req.get("cmd") != "search":
+        return attempt(req, timeout)
+    budget = search_limits.timeout_seconds(req.get("timeout"))
+    if timeout is not None:
+        budget = min(budget, timeout)
+    deadline = time.monotonic() + budget
+    delay = .005
+    last = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 and last is not None:
+            return last
+        wire = dict(req, timeout=max(remaining, .000001))
+        # Allow a small, fixed margin for the server to publish timeout.
+        result = attempt(wire, max(remaining, .000001) + .05)
+        response = result if isinstance(result, dict) else getattr(result, "response", None)
+        if not response or response.get("error_code") != "busy":
+            if last is not None and response is None:
+                # Once a live daemon refused admission, never cold-rerun.
+                code = "timeout" if getattr(result, "fallback_cause", None) == "timeout" else "error"
+                raise errors.DaemonError("Daemon became unavailable while waiting", code)
+            return result
+        last = result
+        time.sleep(min(max(0, deadline - time.monotonic()), random.uniform(delay / 2, delay)))
+        delay = min(.1, delay * 2)
+
+
 def client_request(db_path: Path, req: dict, timeout: float | None = None) -> dict | None:
+    """Send a search within one deadline, waiting for busy daemon capacity."""
+    return _retry_busy(lambda wire, wait: _client_request_once(db_path, wire, wait), req, timeout)
+
+
+def _client_request_once(db_path: Path, req: dict, timeout: float | None = None) -> dict | None:
     """Send a request to a running daemon; None if no usable daemon."""
     if not hasattr(socketserver, "UnixStreamServer"):
         return None
@@ -1026,13 +1061,16 @@ def client_request(db_path: Path, req: dict, timeout: float | None = None) -> di
         return None
     if timeout is None:
         timeout = search_limits.timeout_seconds(req.get("timeout")) + 1.0
+    deadline = time.monotonic() + timeout
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(timeout)
             s.connect(str(sock_path))
+            s.settimeout(max(.000001, deadline - time.monotonic()))
             s.sendall((json.dumps(req) + "\n").encode())
             buf = b""
             while not buf.endswith(b"\n"):
+                s.settimeout(max(.000001, deadline - time.monotonic()))
                 data = s.recv(65536)
                 if not data:
                     break
@@ -1071,6 +1109,18 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float | None = Non
                            expected_instance_id: str | None = None,
                            require_guidance_protocol: bool = False,
                            rerank_effective: dict | None = None) -> ClientOutcome:
+    """Classify a daemon attempt, retrying refusals within the search budget."""
+    return _retry_busy(
+        lambda wire, wait: _client_request_outcome_once(
+            db_path, wire, wait, expected_instance_id=expected_instance_id,
+            require_guidance_protocol=require_guidance_protocol,
+            rerank_effective=rerank_effective), req, timeout)
+
+
+def _client_request_outcome_once(db_path: Path, req: dict, timeout: float | None = None, *,
+                           expected_instance_id: str | None = None,
+                           require_guidance_protocol: bool = False,
+                           rerank_effective: dict | None = None) -> ClientOutcome:
     """Classify a daemon attempt without changing the legacy client contract.
 
     A protocol request deliberately fails closed against a daemon that cannot
@@ -1097,13 +1147,16 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float | None = Non
         wire_req.pop("_rerank_advice_off", None)
         wire_req["rerank_protocol"] = 1
         wire_req["rerank_effective"] = state
+    deadline = time.monotonic() + timeout
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(timeout)
             s.connect(str(sock_path))
+            s.settimeout(max(.000001, deadline - time.monotonic()))
             s.sendall((json.dumps(wire_req) + "\n").encode())
             buf = b""
             while not buf.endswith(b"\n"):
+                s.settimeout(max(.000001, deadline - time.monotonic()))
                 data = s.recv(65536)
                 if not data:
                     break

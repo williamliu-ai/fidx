@@ -86,7 +86,9 @@ def test_successful_old_daemon_is_accepted_only_without_new_protocol(monkeypatch
     assert old.path == "daemon"
     assert old.response == _response()
     assert old.fallback_cause is None
-    assert json.loads(fake.sent) == {"cmd": "search", "query": "topic", "instance_id": "current"}
+    sent = json.loads(fake.sent)
+    assert 0 < sent.pop("timeout") <= 10
+    assert sent == {"cmd": "search", "query": "topic", "instance_id": "current"}
 
     fake = _request(monkeypatch, tmp_path, _response())
     incompatible = _outcome(tmp_path, require=True)
