@@ -16,10 +16,15 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
+from contextvars import copy_context
+from concurrent.futures import TimeoutError as FutureTimeout
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from math import isfinite
 
+from . import search_limits
+from .errors import SearchTimeout
 from .db import has_chunk_line_columns, read_snapshot, subtokens_ready
 from .subtokens import TOKEN_RE as _TOKEN_RE, expand_query, subtoken_match_expr
 from .embedder import Embedder
@@ -39,6 +44,7 @@ SUBTOKEN_WEIGHT = 0.5
 
 # Only embedding runs off-thread; SQLite stays on the caller's thread.
 _QUERY_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fidx-query")
+_QUERY_SLOT = threading.BoundedSemaphore(1)
 
 
 class _PendingSnippet(str):
@@ -72,12 +78,18 @@ class _QueryEmbedding:
         self.future = future
 
     def embed_queries(self, texts):
-        return self.future.result()
+        try:
+            return self.future.result(timeout=search_limits.remaining())
+        except FutureTimeout as exc:
+            raise SearchTimeout("Search timed out waiting for embedding.") from exc
 
 
 def _embed_query(embedder, query):
     # Call through wrappers so the daemon's existing embedder lock is honored.
-    return embedder.embed_queries([query])
+    search_limits.remaining()
+    result = embedder.embed_queries([query])
+    search_limits.remaining()
+    return result
 
 
 @dataclass
@@ -243,7 +255,7 @@ def search_vector(conn: sqlite3.Connection, store, embedder: Embedder, query: st
                   limit: int = CANDIDATES_PER_SOURCE) -> list[Result]:
     if limit <= 0:
         return []
-    qvec = embedder.embed_queries([query])[0]
+    qvec = _embed_query(embedder, query)[0]
     # Keep the existing four-chunks-per-document candidate cap. Exact sqlite-vec
     # needs one lookahead row: a tied cutoff can otherwise select arbitrary
     # chunk IDs before their document paths are available for ordering.
@@ -377,7 +389,16 @@ def search_hybrid(conn: sqlite3.Connection, store, embedder: Embedder, query: st
                   *, trace: SearchTrace | None = None, fusion: str = "rrf") -> list[Result]:
     fusion = parse_fusion(fusion)
     with read_snapshot(conn):
-        future = _QUERY_POOL.submit(_embed_query, embedder, query)
+        wait = search_limits.remaining()
+        acquired = _QUERY_SLOT.acquire() if wait is None else _QUERY_SLOT.acquire(timeout=wait)
+        if not acquired:
+            raise SearchTimeout("Search timed out waiting for embedding capacity.")
+        try:
+            future = _QUERY_POOL.submit(copy_context().run, _embed_query, embedder, query)
+        except BaseException:
+            _QUERY_SLOT.release()
+            raise
+        future.add_done_callback(lambda _: _QUERY_SLOT.release())
         try:
             lex = search_lexical(conn, query, collections, CANDIDATES_PER_SOURCE, True)
             vec = search_vector(conn, store, _QueryEmbedding(future), query, collections)

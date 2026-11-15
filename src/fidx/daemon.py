@@ -20,14 +20,17 @@ import json
 import os
 import socket
 import socketserver
+import signal
+import time
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import threading
-from contextlib import nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from . import budget, config, db, freshness, rerank as rerankmod, rerank_models, search as searchmod, vector_store
+from . import errors, search_limits, budget, config, db, freshness, rerank as rerankmod, rerank_models, search as searchmod, vector_store
 from .db import get_meta
 
 SEARCH_SCHEMA = "fidx.search.v2"
@@ -91,17 +94,130 @@ def _prepare_socket_path(db_path: Path) -> Path:
     return sock_path
 
 
+REQUEST_READ_TIMEOUT = 5.0
+MAX_REQUEST_BYTES = 1024 * 1024
+MAX_READING_CONNECTIONS = 64
+
+
+def _worker_count(value=None):
+    if value is None:
+        value = os.environ.get("FIDX_DAEMON_WORKERS", min(4, max(1, (os.cpu_count() or 1) // 2)))
+    count = int(value)
+    if count < 1:
+        raise ValueError("daemon workers must be positive")
+    return count
+
+
 def _bind_private_unix_server(sock_path: Path, handler) -> socketserver.UnixStreamServer:
     if not hasattr(socketserver, "UnixStreamServer"):
         raise RuntimeError("Unix-socket daemon is unavailable on this platform")
 
-    class _ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-        daemon_threads = True
+    class BoundedUnixServer(socketserver.UnixStreamServer):
+        # The accept loop also frames requests: no thread is allocated to a
+        # slow reader. Only complete search requests enter the bounded pool.
         request_queue_size = 128
+
+        def __init__(self, *args):
+            workers = getattr(handler, "workers", _worker_count())
+            self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fidx-search")
+            self.slots = threading.BoundedSemaphore(workers * 3)
+            self.readers = {}
+            self.lines = {}
+            super().__init__(*args)
+
+        def process_request(self, request, address):
+            request.setblocking(False)
+            if len(self.readers) >= MAX_READING_CONNECTIONS:
+                self.reject(request, "busy", "Daemon request readers are busy")
+                return
+            self.readers[request] = (address, bytearray(), time.monotonic() + REQUEST_READ_TIMEOUT)
+
+        def reject(self, request, code, message):
+            try:
+                request.send((json.dumps({"ok": False, "error_code": code, "error": message}) + "\n").encode())
+            except OSError:
+                pass
+            self.shutdown_request(request)
+
+        def execute(self, request, address):
+            try:
+                self.finish_request(request, address)
+            except (OSError, ValueError):
+                pass
+            finally:
+                self.lines.pop(request, None)
+                self.shutdown_request(request)
+
+        def work(self, request, address):
+            try:
+                self.execute(request, address)
+            finally:
+                self.slots.release()
+
+        def service_actions(self):
+            for request, (address, buf, deadline) in list(self.readers.items()):
+                if time.monotonic() >= deadline:
+                    self.readers.pop(request)
+                    self.reject(request, "error", "Request line read timeout")
+                    continue
+                try:
+                    data = request.recv(min(65536, MAX_REQUEST_BYTES + 1 - len(buf)))
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    data = b""
+                if not data:
+                    self.readers.pop(request)
+                    self.shutdown_request(request)
+                    continue
+                buf.extend(data)
+                if len(buf) > MAX_REQUEST_BYTES:
+                    self.readers.pop(request)
+                    self.reject(request, "error", "Request exceeds maximum size")
+                    continue
+                if b"\n" not in buf:
+                    continue
+                self.readers.pop(request)
+                line = bytes(buf).split(b"\n", 1)[0]
+                self.lines[request] = line
+                try:
+                    parsed = json.loads(line)
+                    ping = isinstance(parsed, dict) and parsed.get("cmd") == "ping"
+                except (ValueError, UnicodeDecodeError, RecursionError):
+                    parsed = None
+                    ping = True  # Malformed requests also need no search slot.
+                if isinstance(parsed, dict) and not ping:
+                    try:
+                        parsed['_deadline'] = time.monotonic() + search_limits.timeout_seconds(parsed.get('timeout'))
+                        self.lines[request] = json.dumps(parsed).encode()
+                    except (TypeError, ValueError):
+                        self.lines.pop(request, None)
+                        self.reject(request, "error", "Invalid search timeout")
+                        continue
+                request.settimeout(1.0)  # A non-reading peer cannot pin a worker.
+                if ping:
+                    self.execute(request, address)
+                elif self.slots.acquire(blocking=False):
+                    try:
+                        self.pool.submit(self.work, request, address)
+                    except BaseException:
+                        self.slots.release()
+                        self.shutdown_request(request)
+                        raise
+                else:
+                    self.lines.pop(request, None)
+                    self.reject(request, "busy", "Daemon search workers and queue are full")
+
+        def server_close(self):
+            super().server_close()
+            for request in self.readers:
+                self.shutdown_request(request)
+            self.readers.clear()
+            self.pool.shutdown(wait=True)
 
     old_umask = os.umask(0o177)
     try:
-        server = _ThreadedUnixServer(str(sock_path), handler)
+        server = BoundedUnixServer(str(sock_path), handler)
     finally:
         os.umask(old_umask)
     os.chmod(sock_path, 0o600)
@@ -601,7 +717,7 @@ def run_search(conn, store, embedder, req: dict,
                *, trace: searchmod.SearchTrace | None = None,
                reranker: rerankmod.Reranker | None = None,
                rerank_n: int = 20) -> dict:
-    with db.read_snapshot(conn):
+    with search_limits.search_budget(conn, req), db.read_snapshot(conn):
         return _run_search(conn, store, embedder, req, trace=trace,
                            reranker=reranker, rerank_n=rerank_n)
 
@@ -729,9 +845,24 @@ def _run_search(conn, store, embedder, req: dict,
     return budget.apply_budget(envelope, requested) if requested is not None else envelope
 
 
-def serve(db_path: Path, conn, store, embedder) -> None:
+@contextmanager
+def _socket_startup(sock_path):
+    """Persistent process lock for probe/remove/bind; never held by searches."""
+    import fcntl
+
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(sock_path) + ".lock", flags, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def serve(db_path: Path, conn, store, embedder, *, workers: int | None = None) -> None:
     if not hasattr(socketserver, "UnixStreamServer"):
         raise RuntimeError("Unix-socket daemon is unavailable on this platform")
+    worker_count = _worker_count(workers)
     instance_id = get_meta(conn, "instance_id")
     daemon_fingerprint = config.profile_fingerprint(embedder.profile)
     embed_lock = threading.Lock()
@@ -739,70 +870,72 @@ def serve(db_path: Path, conn, store, embedder) -> None:
     rerank_lock = threading.Lock()
     rerank_slot: dict[str, object | None] = {"model": None, "scorer": None}
 
+    # Resource locks are never nested. Order for code needing multiple stages:
+    # embed_lock, rerank_lock, duckdb_lock; release each before the next stage.
     class LockedEmbedder:
         def embed_queries(self, texts):
-            with embed_lock:
+            with search_limits.resource(embed_lock):
                 return embedder.embed_queries(texts)
 
     locked_embedder = LockedEmbedder()
 
+    class LockedStore:
+        name = "duckdb"
+
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def knn(self, *args):
+            with search_limits.resource(duckdb_lock):
+                return self.wrapped.knn(*args)
+
+    class LockedReranker:
+        def __init__(self, model):
+            self.model = model
+
+        def rerank(self, *args, **kwargs):
+            with search_limits.resource(rerank_lock):
+                if rerank_slot["model"] != self.model:
+                    rerank_slot["model"] = None
+                    rerank_slot["scorer"] = None
+                    scorer, _ = rerank_models.resolve_reranker_model(
+                        self.model, local_files_only=True)
+                    rerank_slot.update(model=self.model, scorer=scorer)
+                return list(rerank_slot["scorer"].rerank(*args, **kwargs))
+
     def search_request(req: dict, rerank_state: dict | None) -> dict:
         request_conn = db.connect(db_path, create=False, read_only=True)
         try:
-            # open_store only selects the backend; DuckDB opens its sidecar
-            # lazily in run_search. Recheck per request because first indexing
-            # may pin DuckDB after this daemon started with NullStore.
-            request_store = vector_store.open_store(
-                request_conn, db_path, read_only=True)
-            with duckdb_lock if request_store.name == "duckdb" else nullcontext():
+            with search_limits.search_budget(request_conn, req):
+                request_store = vector_store.open_store(request_conn, db_path, read_only=True)
                 try:
                     if req.get("mode", "hybrid") in ("vector", "hybrid"):
                         pinned_fingerprint = get_meta(request_conn, "embed_fingerprint")
-                        if (pinned_fingerprint is not None
-                                and pinned_fingerprint != daemon_fingerprint):
+                        if pinned_fingerprint is not None and pinned_fingerprint != daemon_fingerprint:
                             pinned_profile = get_meta(request_conn, "embed_profile")
                             raise RuntimeError(
                                 f"index embedding profile {pinned_profile!r} differs "
-                                f"from daemon profile {embedder.profile.name!r}; "
-                                "restart fidx serve"
-                            )
+                                f"from daemon profile {embedder.profile.name!r}; restart fidx serve")
+                    scorer = None
                     if rerank_state is not None and rerank_state["enabled"]:
-                        # Scoring is a lazy iterator. Keep the lock through the
-                        # whole request so a model swap cannot overlap its use.
-                        with rerank_lock:
-                            rerank_models.probe_rerank_capability()
-                            active = request_conn.execute(
-                                "SELECT 1 FROM documents WHERE active = 1 LIMIT 1"
-                            ).fetchone() is not None
-                            scorer = None
-                            if active:
-                                model = rerank_state["model"]
-                                if rerank_slot["model"] != model:
-                                    rerank_slot["model"] = None
-                                    rerank_slot["scorer"] = None
-                                    scorer, _ = rerank_models.resolve_reranker_model(
-                                        model, local_files_only=True)
-                                    rerank_slot["model"] = model
-                                    rerank_slot["scorer"] = scorer
-                                scorer = rerank_slot["scorer"]
-                            return run_search(request_conn, request_store, locked_embedder,
-                                              req, reranker=scorer)
-                    return run_search(request_conn, request_store, locked_embedder, req)
+                        rerank_models.probe_rerank_capability()
+                        scorer = LockedReranker(rerank_state["model"])
+                    selected_store = LockedStore(request_store) if request_store.name == "duckdb" else request_store
+                    return run_search(request_conn, selected_store, locked_embedder, req, reranker=scorer)
                 finally:
                     if hasattr(request_store, "close"):
+                        # This handle belongs only to this request. Closing it
+                        # must not wait for another request's DuckDB operation.
                         request_store.close()
         finally:
             request_conn.close()
 
     sock_path = _prepare_socket_path(db_path)
-    if sock_path.exists() or sock_path.is_symlink():
-        if not sock_path.is_socket():
-            raise RuntimeError(f"refusing to remove non-socket at {sock_path}")
-        sock_path.unlink()
-
     class Handler(socketserver.StreamRequestHandler):
+        workers = worker_count
+
         def handle(self) -> None:
-            line = self.rfile.readline()
+            line = self.server.lines.pop(self.request)
             if not line:
                 return
             try:
@@ -815,6 +948,8 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                     raise ValueError("unsupported guidance protocol")
                 if req.get("cmd") == "ping":
                     resp = {"ok": True, "pong": True}
+                elif req.get("instance_id") is not None and req["instance_id"] != instance_id:
+                    resp = {"ok": False, "error_code": "stale_instance", "error": "Daemon serves a different index"}
                 else:
                     resp = {"ok": True, "results": search_request(req, rerank_state)}
                     fusion = searchmod.parse_fusion(req.get("fusion", "rrf"))
@@ -826,28 +961,71 @@ def serve(db_path: Path, conn, store, embedder) -> None:
                         resp["rerank_protocol"] = 1
                         resp["rerank_effective"] = rerank_state
             except Exception as exc:  # protocol boundary: report, don't crash server
-                resp = {"ok": False, "error": str(exc)}
+                resp = {"ok": False, "error": str(exc),
+                        "error_code": "timeout" if isinstance(exc, errors.SearchTimeout) else "error"}
             resp["instance_id"] = instance_id
             self.wfile.write((json.dumps(resp) + "\n").encode())
 
-    # Warm the model before accepting connections.
-    embedder.embed_queries(["warmup"])
-    server = _bind_private_unix_server(sock_path, Handler)
+    # Serialize stale-socket removal through bind. A second starter must not
+    # act on a refusal observed before another starter acquired the endpoint.
+    with _socket_startup(sock_path):
+        if sock_path.exists() or sock_path.is_symlink():
+            if not sock_path.is_socket():
+                raise RuntimeError(f"refusing to remove non-socket at {sock_path}")
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(.5)
+                    probe.connect(str(sock_path))
+                    try:
+                        probe.sendall(b'{"cmd":"ping"}\n')
+                        probe.recv(4096)
+                    except OSError:
+                        pass  # A connected owner is live even if it cannot answer.
+            except (ConnectionRefusedError, FileNotFoundError):
+                sock_path.unlink(missing_ok=True)
+            else:
+                # Conservatively preserve a connected owner even if overloaded or
+                # running an older protocol; never steal an occupied endpoint.
+                raise RuntimeError(f"daemon already running at {sock_path}")
+        embedder.embed_queries(["warmup"])
+        server = _bind_private_unix_server(sock_path, Handler)
+    bound_socket = sock_path.stat()
+    socket_identity = (bound_socket.st_dev, bound_socket.st_ino, bound_socket.st_ctime_ns)
     print(f"fidx daemon listening on {sock_path} (pid {os.getpid()})", file=sys.stderr)
+    old_handlers = {}
+    stopping = threading.Event()
+    if threading.current_thread() is threading.main_thread():
+        def stop(signum, frame):
+            # shutdown must run outside serve_forever's thread.
+            if not stopping.is_set():
+                stopping.set()
+                threading.Thread(target=server.shutdown, name="fidx-stop", daemon=True).start()
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            old_handlers[signum] = signal.signal(signum, stop)
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=.01)
     finally:
         server.server_close()
-        sock_path.unlink(missing_ok=True)
+        for signum, previous in old_handlers.items():
+            signal.signal(signum, previous)
+        with _socket_startup(sock_path):
+            try:
+                current = sock_path.stat()
+                if (current.st_dev, current.st_ino, current.st_ctime_ns) == socket_identity:
+                    sock_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
-def client_request(db_path: Path, req: dict, timeout: float = 30.0) -> dict | None:
+def client_request(db_path: Path, req: dict, timeout: float | None = None) -> dict | None:
     """Send a request to a running daemon; None if no usable daemon."""
     if not hasattr(socketserver, "UnixStreamServer"):
         return None
     sock_path = socket_path_for(db_path)
     if not sock_path.exists():
         return None
+    if timeout is None:
+        timeout = search_limits.timeout_seconds(req.get("timeout")) + 1.0
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(timeout)
@@ -859,8 +1037,22 @@ def client_request(db_path: Path, req: dict, timeout: float = 30.0) -> dict | No
                 if not data:
                     break
                 buf += data
-        return json.loads(buf) if buf else None
-    except (OSError, json.JSONDecodeError):
+        if not buf or not buf.endswith(b"\n"):
+            if req.get("cmd") == "search":
+                raise errors.DaemonError("Daemon closed the connection without a complete response")
+            return None
+        response = json.loads(buf)
+        if not isinstance(response, dict):
+            if req.get("cmd") == "search":
+                raise errors.DaemonError("Daemon returned an invalid response")
+            return None
+        return response
+    except (ConnectionRefusedError, FileNotFoundError):
+        return None
+    except (OSError, ValueError) as exc:
+        if req.get("cmd") == "search":
+            code = "timeout" if isinstance(exc, TimeoutError) else "error"
+            raise errors.DaemonError(f"Daemon search failed: {exc}", code) from exc
         return None
 
 
@@ -875,7 +1067,7 @@ class ClientOutcome:
     stale_instance: bool = False
 
 
-def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
+def client_request_outcome(db_path: Path, req: dict, timeout: float | None = None, *,
                            expected_instance_id: str | None = None,
                            require_guidance_protocol: bool = False,
                            rerank_effective: dict | None = None) -> ClientOutcome:
@@ -894,6 +1086,9 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
     if not sock_path.exists():
         return ClientOutcome("cold")
     wire_req = dict(req)
+    wire_req["instance_id"] = expected_instance_id
+    if timeout is None:
+        timeout = search_limits.timeout_seconds(req.get("timeout")) + 1.0
     if require_guidance_protocol:
         wire_req["guidance_protocol"] = 1
     if rerank_effective is not None:
@@ -920,18 +1115,21 @@ def client_request_outcome(db_path: Path, req: dict, timeout: float = 30.0, *,
     except OSError:
         return ClientOutcome("cold", fallback_cause="transport_error")
     if not buf.endswith(b"\n"):
-        return ClientOutcome("cold", fallback_cause="malformed_response")
+        return ClientOutcome("cold", fallback_cause="transport_error")
     try:
         response = json.loads(buf)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return ClientOutcome("cold", fallback_cause="malformed_response")
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return ClientOutcome("cold", fallback_cause="transport_error")
     if not isinstance(response, dict):
         return ClientOutcome("cold", fallback_cause="malformed_response")
     if response.get("ok") is False:
+        if response.get("error_code") == "stale_instance":
+            return ClientOutcome("cold", stale_instance=True)
         error = response.get("error")
         if isinstance(error, str) and error:
-            return ClientOutcome("cold", fallback_cause="daemon_error", daemon_error=error)
-        return ClientOutcome("cold", fallback_cause="malformed_response")
+            return ClientOutcome("cold", response=response, fallback_cause="daemon_error", daemon_error=error)
+        return ClientOutcome("cold", response=response, fallback_cause="daemon_error",
+                             daemon_error="Daemon search failed: " + str(response.get("error_code", "error")))
     if response.get("ok") is not True:
         return ClientOutcome("cold", fallback_cause="malformed_response")
     if (expected_instance_id is not None and

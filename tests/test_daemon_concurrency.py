@@ -126,7 +126,7 @@ def test_concurrent_real_sqlite_vec_searches_match_cold_envelopes(tmp_path, monk
     assert [resp["results"] for resp in responses] == expected
 
 
-def test_burst_of_64_mixed_clients_is_accepted_in_three_rounds(tmp_path, monkeypatch):
+def test_burst_of_64_mixed_clients_completes_or_gets_backpressure_in_three_rounds(tmp_path, monkeypatch):
     path = _seed_index(tmp_path)
     modes = ("lexical", "hybrid", "vector")
     with _live_server(path, tmp_path, monkeypatch) as server:
@@ -142,7 +142,9 @@ def test_burst_of_64_mixed_clients_is_accepted_in_three_rounds(tmp_path, monkeyp
                 pending = [pool.submit(send, i) for i in range(64)]
                 gate.wait(timeout=5)
                 responses = [future.result(timeout=30) for future in pending]
-                assert all(resp is not None and resp["ok"] for resp in responses), responses
+                assert all(resp is not None and (resp["ok"] or
+                           resp.get("error_code") == "busy") for resp in responses), responses
+                assert any(resp["ok"] for resp in responses), responses
 
 
 class PausingEmbedder:
@@ -248,7 +250,7 @@ def test_handler_closes_request_connections_even_after_search_error(
     assert all(not response["ok"] for response in responses[12:])
 
 
-def test_duckdb_handler_serializes_entire_request(tmp_path, monkeypatch):
+def test_duckdb_lexical_finishes_while_vector_embedding_waits(tmp_path, monkeypatch):
     pytest.importorskip("duckdb")
     path = _seed_index(tmp_path, backend="duckdb")
     closed = []
@@ -266,8 +268,9 @@ def test_duckdb_handler_serializes_entire_request(tmp_path, monkeypatch):
             assert embedder.entered.wait(3)
             try:
                 fast = pool.submit(daemon.client_request, path, _request("beta", "lexical"))
-                with pytest.raises(TimeoutError):
-                    fast.result(timeout=0.2)
+                response = fast.result(timeout=1)
+                assert response and response["ok"]
+                assert not slow.done()
             finally:
                 embedder.release.set()
             assert slow.result(timeout=5)["ok"]
@@ -277,7 +280,7 @@ def test_duckdb_handler_serializes_entire_request(tmp_path, monkeypatch):
     assert len(closed) == 2
 
 
-def test_duckdb_first_pinned_after_daemon_start_still_serializes(
+def test_duckdb_first_pinned_after_start_does_not_lock_during_embedding(
     tmp_path, monkeypatch,
 ):
     pytest.importorskip("duckdb")
@@ -312,8 +315,9 @@ def test_duckdb_first_pinned_after_daemon_start_still_serializes(
             assert embedder.entered.wait(3)
             try:
                 fast = pool.submit(daemon.client_request, path, _request("beta", "lexical"))
-                with pytest.raises(TimeoutError):
-                    fast.result(timeout=0.2)
+                response = fast.result(timeout=1)
+                assert response and response["ok"]
+                assert not slow.done()
             finally:
                 embedder.release.set()
             assert slow.result(timeout=5)["ok"]

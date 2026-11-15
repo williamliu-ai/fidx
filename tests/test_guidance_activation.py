@@ -146,6 +146,9 @@ def _live_server(path, tmp_path, monkeypatch):
     thread.start()
     try:
         server = ready.get(timeout=5)
+        # Binding precedes the accept loop and startup diagnostic. Await actual
+        # readiness before CliRunner captures output in the main thread.
+        assert daemon.client_request(path, {"cmd": "ping"}, timeout=5)["pong"]
         yield
     finally:
         if "server" in locals():

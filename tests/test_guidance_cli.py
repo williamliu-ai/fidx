@@ -214,7 +214,7 @@ def test_internal_default_on_uses_protocol_and_echoes_guidance(indexed, monkeypa
 def test_guided_cli_applies_budget_once_after_path_provenance(indexed, monkeypatch):
     path, _ = indexed
     monkeypatch.setattr(daemon, "client_request_outcome", lambda *_a, **_k:
-                        daemon.ClientOutcome("cold", fallback_cause="timeout"))
+                        daemon.ClientOutcome("cold", fallback_cause="connect_refused"))
     original = budget.apply_budget
     seen = []
 
@@ -225,7 +225,7 @@ def test_guided_cli_applies_budget_once_after_path_provenance(indexed, monkeypat
     monkeypatch.setattr(budget, "apply_budget", counted)
     payload = _run(path, "--guidance", "--budget-tokens", "5000")
     assert seen == [({"complete": True, "partial_reason": None,
-                     "path": "cold", "fallback_cause": "timeout"}, 5000)]
+                     "path": "cold", "fallback_cause": "connect_refused"}, 5000)]
     assert payload["summary"]["budget"]["requested"] == 5000
 
 
@@ -242,9 +242,18 @@ def test_guidance_stale_and_daemon_error_keep_truthful_provenance(indexed, monke
     monkeypatch.setattr(daemon, "client_request_outcome", lambda *_a, **_k:
                         daemon.ClientOutcome("cold", fallback_cause="daemon_error",
                                              daemon_error="exact daemon failure"))
-    failed = _run(path, "--guidance")
-    assert failed["diagnostics"]["execution"]["fallback_cause"] == "daemon_error"
-    assert failed["diagnostics"]["execution"]["error"] == "exact daemon failure"
+    local_calls = []
+    monkeypatch.setattr(daemon, "run_search", lambda *a, **k: local_calls.append(True))
+    result = CliRunner().invoke(main, [
+        "--db", str(path), "search", "running deployment", "--mode", "lexical",
+        "-c", "alpha", "--json", "--guidance",
+    ])
+    assert result.exit_code != 0
+    failed = json.loads(result.output)
+    assert failed["schema"] == "fidx.error.v1"
+    assert failed["status"] == "error"
+    assert failed["message"] == "exact daemon failure"
+    assert not local_calls
 
 
 @pytest.mark.parametrize("query,flag", [
@@ -264,13 +273,22 @@ def test_explain_or_guidance_budget_zero_is_classified_and_abstains(
         assert payload["next_actions"]
 
 
-def test_explicit_off_and_explain_do_not_report_guidance_provenance(indexed, monkeypatch):
+def test_explicit_off_and_explain_timeout_is_an_error_without_cold_retry(indexed, monkeypatch):
     path, _ = indexed
     monkeypatch.setattr(daemon, "client_request_outcome", lambda *_a, **_k:
                         daemon.ClientOutcome("cold", fallback_cause="timeout"))
+    local_calls = []
+    monkeypatch.setattr(daemon, "run_search", lambda *a, **k: local_calls.append(True))
     for flag in ("--no-guidance", "--explain"):
-        payload = _run(path, flag)
-        assert "execution" not in payload["diagnostics"]
+        result = CliRunner().invoke(main, [
+            "--db", str(path), "search", "running deployment", "--mode", "lexical",
+            "-c", "alpha", "--json", flag,
+        ])
+        assert result.exit_code != 0
+        payload = json.loads(result.output)
+        assert payload["schema"] == "fidx.error.v1"
+        assert payload["status"] == "timeout"
+    assert not local_calls
 
 
 def test_guidance_lexical_cold_path_never_loads_a_model(indexed, monkeypatch):
